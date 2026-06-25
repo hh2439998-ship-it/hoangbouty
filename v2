@@ -1,0 +1,605 @@
+-- [[ BLOX FRUITS PVP & MACRO SCRIPT + ESP ]] --
+-- RU: Основные сервисы
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+
+-- RU: Конфигурация (Настройки по умолчанию)
+local Config = {
+    WalkSpeed = 16,
+    JumpPower = 50,
+    AimbotEnabled = false,
+    FovRadius = 100,
+    FovVisible = false,
+    TrackTarget = false,
+    MacroEnabled = false,
+    ESPEnabled = false,
+    MacroSequence = {}
+}
+
+-- RU: Инициализация 10 шагов макроса
+for i = 1, 10 do
+    Config.MacroSequence[i] = {
+        Key = "Z",
+        Weapon = "Melee",
+        Delay = 0.5
+    }
+end
+
+-- RU: Круг FOV по центру экрана
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 215, 0)
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- ==========================================
+-- RU: ESP СИСТЕМА (ИМЕНА, ХИТБОКС, ДИСТАНЦИЯ, ЗДОРОВЬЕ)
+-- ==========================================
+local ESP_Objects = {}
+
+local function CreateESP(player)
+    local esp = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        HealthBar = Drawing.new("Line"),
+        HealthText = Drawing.new("Text"),
+        Distance = Drawing.new("Text")
+    }
+
+    -- RU: Настройки визуализации
+    esp.Box.Color = Color3.fromRGB(255, 0, 0)
+    esp.Box.Thickness = 1.5
+    esp.Box.Filled = false
+    
+    esp.Name.Color = Color3.fromRGB(255, 255, 255)
+    esp.Name.Size = 16
+    esp.Name.Center = true
+    esp.Name.Outline = true
+    
+    esp.HealthBar.Color = Color3.fromRGB(0, 255, 0)
+    esp.HealthBar.Thickness = 3
+    
+    esp.HealthText.Color = Color3.fromRGB(0, 255, 0)
+    esp.HealthText.Size = 14
+    esp.HealthText.Center = true
+    esp.HealthText.Outline = true
+
+    esp.Distance.Color = Color3.fromRGB(255, 215, 0)
+    esp.Distance.Size = 14
+    esp.Distance.Center = true
+    esp.Distance.Outline = true
+
+    ESP_Objects[player] = esp
+end
+
+local function RemoveESP(player)
+    if ESP_Objects[player] then
+        for _, drawing in pairs(ESP_Objects[player]) do
+            drawing:Remove()
+        end
+        ESP_Objects[player] = nil
+    end
+end
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then CreateESP(player) end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then CreateESP(player) end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    RemoveESP(player)
+end)
+
+-- ==========================================
+-- RU: УТИЛИТЫ (ВНУТРИИГРОВЫЕ ФУНКЦИИ)
+-- ==========================================
+
+-- RU: Поиск ближайшего игрока в центре FOV
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
+            if onScreen then
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerScreen).Magnitude
+                if distance <= Config.FovRadius and distance < shortestDistance then
+                    closestPlayer = player
+                    shortestDistance = distance
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- RU: Автоматическая экипировка
+local function EquipWeapon(weaponType)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    if not character or not backpack then return end
+    
+    for _, item in pairs(character:GetChildren()) do
+        if item:IsA("Tool") then item.Parent = backpack end
+    end
+    
+    for _, tool in pairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            local match = false
+            if weaponType == "Melee" and (tool:FindFirstChild("Combat") or tool:FindFirstChild("Melee") or string.find(tool.Name, "Style")) then match = true
+            elseif weaponType == "Sword" and tool:FindFirstChild("Sword") then match = true
+            elseif weaponType == "Fruit" and (string.find(tool.Name, "Fruit") or tool:FindFirstChild("Eat")) then match = true
+            elseif weaponType == "Gun" and tool:FindFirstChild("Gun") then match = true
+            end
+            
+            if match or tool.Name == weaponType then
+                tool.Parent = character
+                break
+            end
+        end
+    end
+end
+
+-- RU: Виртуальное нажатие скиллов
+local function ActivateSkill(key)
+    if keypress then
+        local keyCode = Enum.KeyCode[key].Value
+        keypress(keyCode)
+        task.wait(0.05)
+        keyrelease(keyCode)
+    end
+end
+
+-- RU: Обновление параметров игрока
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = Config.WalkSpeed
+                LocalPlayer.Character.Humanoid.JumpPower = Config.JumpPower
+                LocalPlayer.Character.Humanoid.UseJumpPower = true
+            end
+        end)
+    end
+end)
+
+-- RU: Главный цикл Aimbot, FOV и ESP
+RunService.RenderStepped:Connect(function()
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    -- RU: Обновление позиции FOV строго по центру
+    if Config.FovVisible then
+        FOVCircle.Position = centerScreen
+        FOVCircle.Radius = Config.FovRadius
+        FOVCircle.Visible = true
+    else
+        FOVCircle.Visible = false
+    end
+    
+    -- RU: Логика Aimbot & Авто-приближения
+    if Config.AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = target.Character.HumanoidRootPart
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHRP.Position)
+            
+            if Config.TrackTarget and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local isHoldingSkill = UserInputService:IsKeyDown(Enum.KeyCode.Z) or UserInputService:IsKeyDown(Enum.KeyCode.X) or UserInputService:IsKeyDown(Enum.KeyCode.C) or UserInputService:IsKeyDown(Enum.KeyCode.V) or UserInputService:IsKeyDown(Enum.KeyCode.F)
+                if isHoldingSkill then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3)
+                end
+            end
+        end
+    end
+
+    -- RU: Обновление ESP
+    for player, esp in pairs(ESP_Objects) do
+        if Config.ESPEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local hum = player.Character.Humanoid
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
+            if onScreen then
+                local myPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position or Vector3.new(0,0,0)
+                local dist = math.floor((hrp.Position - myPos).Magnitude)
+                local head = player.Character:FindFirstChild("Head")
+                
+                -- RU: Расчет размера хитбокса
+                local headPos = Camera:WorldToViewportPoint(head and head.Position + Vector3.new(0, 0.5, 0) or hrp.Position + Vector3.new(0, 2, 0))
+                local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                local boxHeight = math.abs(headPos.Y - legPos.Y)
+                local boxWidth = boxHeight * 0.6
+
+                esp.Box.Size = Vector2.new(boxWidth, boxHeight)
+                esp.Box.Position = Vector2.new(pos.X - boxWidth / 2, headPos.Y)
+                esp.Box.Visible = true
+
+                esp.Name.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+                esp.Name.Position = Vector2.new(pos.X, headPos.Y - 20)
+                esp.Name.Visible = true
+
+                esp.Distance.Text = tostring(dist) .. "m"
+                esp.Distance.Position = Vector2.new(pos.X, legPos.Y + 5)
+                esp.Distance.Visible = true
+
+                local healthPercent = hum.Health / hum.MaxHealth
+                esp.HealthBar.From = Vector2.new(pos.X - boxWidth / 2 - 5, legPos.Y)
+                esp.HealthBar.To = Vector2.new(pos.X - boxWidth / 2 - 5, legPos.Y - (boxHeight * healthPercent))
+                esp.HealthBar.Color = Color3.fromRGB(255 - (255 * healthPercent), 255 * healthPercent, 0)
+                esp.HealthBar.Visible = true
+
+                esp.HealthText.Text = math.floor(hum.Health) .. " HP"
+                esp.HealthText.Position = Vector2.new(pos.X - boxWidth / 2 - 25, legPos.Y - (boxHeight * healthPercent) - 10)
+                esp.HealthText.Visible = true
+            else
+                esp.Box.Visible = false
+                esp.Name.Visible = false
+                esp.HealthBar.Visible = false
+                esp.HealthText.Visible = false
+                esp.Distance.Visible = false
+            end
+        else
+            esp.Box.Visible = false
+            esp.Name.Visible = false
+            esp.HealthBar.Visible = false
+            esp.HealthText.Visible = false
+            esp.Distance.Visible = false
+        end
+    end
+end)
+
+-- RU: Исполнение макроса
+local function RunMacroCombo()
+    if not Config.MacroEnabled then return end
+    for i = 1, #Config.MacroSequence do
+        if not Config.MacroEnabled then break end
+        local step = Config.MacroSequence[i]
+        
+        EquipWeapon(step.Weapon)
+        task.wait(0.1)
+        ActivateSkill(step.Key)
+        task.wait(step.Delay)
+    end
+end
+
+-- ==========================================
+-- RU: ГРАФИЧЕСКИЙ ИНТЕРФЕЙС (UI SCREEN)
+-- ==========================================
+
+local MainGui = Instance.new("ScreenGui")
+MainGui.Name = "BloxFruitsPvPMacroUI"
+MainGui.ResetOnSpawn = false
+MainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+if syn and syn.protect_gui then syn.protect_gui(MainGui) end
+MainGui.Parent = game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 550, 0, 420)
+MainFrame.Position = UDim2.new(0.3, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = MainGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+local MenuToggleButton = Instance.new("TextButton")
+MenuToggleButton.Size = UDim2.new(0, 40, 0, 40)
+MenuToggleButton.Position = UDim2.new(0.02, 0, 0.02, 0)
+MenuToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MenuToggleButton.Text = "⚡"
+MenuToggleButton.TextColor3 = Color3.fromRGB(255, 215, 0)
+MenuToggleButton.TextSize = 20
+MenuToggleButton.Parent = MainGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 20)
+ToggleCorner.Parent = MenuToggleButton
+
+MenuToggleButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 40)
+TitleLabel.Text = "   BLOX FRUITS PVP & MACRO HUB + ESP"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleLabel.BorderSizePixel = 0
+TitleLabel.Parent = MainFrame
+
+-- RU: Исправленная функция ползунка (отвязка от бага смещения)
+local function CreateSlider(parent, name, min, max, default, yPos, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(0.9, 0, 0, 50)
+    Container.Position = UDim2.new(0.05, 0, 0, yPos)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, 0, 0, 20)
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Container
+
+    local SliderLine = Instance.new("Frame")
+    SliderLine.Size = UDim2.new(0.8, 0, 0, 6)
+    SliderLine.Position = UDim2.new(0, 0, 0, 30)
+    SliderLine.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    SliderLine.BorderSizePixel = 0
+    SliderLine.Parent = Container
+
+    local FillLine = Instance.new("Frame")
+    FillLine.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    FillLine.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    FillLine.BorderSizePixel = 0
+    FillLine.Parent = SliderLine
+
+    local SliderBtn = Instance.new("TextButton")
+    SliderBtn.Size = UDim2.new(0, 10, 0, 20)
+    SliderBtn.Position = UDim2.new((default - min) / (max - min), -5, 0.5, -10)
+    SliderBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    SliderBtn.Text = "|"
+    SliderBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    SliderBtn.TextSize = 12
+    SliderBtn.Parent = SliderLine
+
+    local ValueBox = Instance.new("TextLabel")
+    ValueBox.Size = UDim2.new(0, 50, 0, 20)
+    ValueBox.Position = UDim2.new(0.85, 0, 0, 23)
+    ValueBox.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    ValueBox.Text = tostring(default)
+    ValueBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ValueBox.TextSize = 14
+    ValueBox.Parent = Container
+
+    local dragging = false
+    SliderBtn.MouseButton1Down:Connect(function() dragging = true end)
+    
+    UserInputService.InputEnded:Connect(function(input) 
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+            dragging = false 
+        end 
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local mouseX = input.Position.X
+            local lineLeft = SliderLine.AbsolutePosition.X
+            local lineWidth = SliderLine.AbsoluteSize.X
+            local percentage = math.clamp((mouseX - lineLeft) / lineWidth, 0, 1)
+            
+            SliderBtn.Position = UDim2.new(percentage, -5, 0.5, -10)
+            FillLine.Size = UDim2.new(percentage, 0, 1, 0)
+            
+            local val = math.floor(min + (max - min) * percentage)
+            ValueBox.Text = tostring(val)
+            callback(val)
+        end
+    end)
+end
+
+local function CreateToggle(parent, name, yPos, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.9, 0, 0, 40)
+    Frame.Position = UDim2.new(0.05, 0, 0, yPos)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0, 30, 0, 30)
+    Button.Position = UDim2.new(0.8, 0, 0.05, 0)
+    Button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Button.Text = ""
+    Button.TextColor3 = Color3.fromRGB(46, 204, 113)
+    Button.TextSize = 18
+    Button.Parent = Frame
+    
+    local enabled = false
+    Button.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        Button.Text = enabled and "✓" or ""
+        callback(enabled)
+    end)
+end
+
+-- RU: Вкладки
+local TabContainer = Instance.new("Frame")
+TabContainer.Size = UDim2.new(1, 0, 0, 30)
+TabContainer.Position = UDim2.new(0, 0, 0, 40)
+TabContainer.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TabContainer.Parent = MainFrame
+
+local Tab1Btn = Instance.new("TextButton")
+Tab1Btn.Size = UDim2.new(0.33, 0, 1, 0)
+Tab1Btn.Text = "Nhân vật / ESP"
+Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Tab1Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Tab1Btn.Parent = TabContainer
+
+local Tab2Btn = Instance.new("TextButton")
+Tab2Btn.Size = UDim2.new(0.67, 0, 1, 0)
+Tab2Btn.Position = UDim2.new(0.33, 0, 0, 0)
+Tab2Btn.Text = "PvP / Aimbot / Macro"
+Tab2Btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+Tab2Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Tab2Btn.Parent = TabContainer
+
+local Tab1Page = Instance.new("ScrollingFrame")
+Tab1Page.Size = UDim2.new(1, 0, 1, -70)
+Tab1Page.Position = UDim2.new(0, 0, 0, 70)
+Tab1Page.BackgroundTransparency = 1
+Tab1Page.CanvasSize = UDim2.new(0, 0, 1.5, 0)
+Tab1Page.Visible = true
+Tab1Page.Parent = MainFrame
+
+local Tab2Page = Instance.new("ScrollingFrame")
+Tab2Page.Size = UDim2.new(1, 0, 1, -70)
+Tab2Page.Position = UDim2.new(0, 0, 0, 70)
+Tab2Page.BackgroundTransparency = 1
+Tab2Page.CanvasSize = UDim2.new(0, 0, 2.5, 0)
+Tab2Page.Visible = false
+Tab2Page.Parent = MainFrame
+
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = true; Tab2Page.Visible = false
+    Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab1Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Tab2Btn.TextColor3 = Color3.fromRGB(150, 150, 150); Tab2Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+end)
+
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = false; Tab2Page.Visible = true
+    Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab2Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Tab1Btn.TextColor3 = Color3.fromRGB(150, 150, 150); Tab1Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+end)
+
+-- ==========================================
+-- RU: КОНФИГУРАЦИЯ ВКАЛАДКИ 1
+-- ==========================================
+
+CreateSlider(Tab1Page, "Tốc độ chạy (Speed)", 16, 400, 16, 20, function(value)
+    Config.WalkSpeed = value
+end)
+
+CreateSlider(Tab1Page, "Độ cao nhảy (Jump Power)", 50, 400, 50, 90, function(value)
+    Config.JumpPower = value
+end)
+
+CreateToggle(Tab1Page, "Bật ESP (Nhận diện Player/Máu/Khoảng cách)", 160, function(state)
+    Config.ESPEnabled = state
+end)
+
+-- ==========================================
+-- RU: КОНФИГУРАЦИЯ ВКЛАДКИ 2
+-- ==========================================
+
+CreateToggle(Tab2Page, "Bật Aimbot Camera khóa mục tiêu gần nhất", 10, function(state)
+    Config.AimbotEnabled = state
+end)
+
+CreateToggle(Tab2Page, "Hiện vòng tròn giới hạn FOV (Giữa màn hình)", 55, function(state)
+    Config.FovVisible = state
+end)
+
+CreateSlider(Tab2Page, "Kích thước vùng quét FOV (1 - 1600)", 1, 1600, 100, 100, function(value)
+    Config.FovRadius = value
+end)
+
+CreateToggle(Tab2Page, "Tự bám sát áp sát mục tiêu khi giữ chiêu", 165, function(state)
+    Config.TrackTarget = state
+end)
+
+CreateToggle(Tab2Page, "KÍCH HOẠT VÒNG LẶP MACRO COMBO", 215, function(state)
+    Config.MacroEnabled = state
+    if state then
+        task.spawn(function()
+            while Config.MacroEnabled do
+                RunMacroCombo()
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+local startY = 270
+for i = 1, 10 do
+    local StepFrame = Instance.new("Frame")
+    StepFrame.Size = UDim2.new(0.9, 0, 0, 70)
+    StepFrame.Position = UDim2.new(0.05, 0, 0, startY + ((i - 1) * 80))
+    StepFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    StepFrame.Parent = Tab2Page
+
+    local StepCorner = Instance.new("UICorner")
+    StepCorner.CornerRadius = UDim.new(0, 5)
+    StepCorner.Parent = StepFrame
+
+    local StepLabel = Instance.new("TextLabel")
+    StepLabel.Size = UDim2.new(0.2, 0, 1, 0)
+    StepLabel.Text = "Bước " .. i
+    StepLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    StepLabel.TextSize = 14
+    StepLabel.BackgroundTransparency = 1
+    StepLabel.Parent = StepFrame
+
+    local KeyBtn = Instance.new("TextButton")
+    KeyBtn.Size = UDim2.new(0.2, 0, 0.6, 0)
+    KeyBtn.Position = UDim2.new(0.25, 0, 0.2, 0)
+    KeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    KeyBtn.Text = "Phím: " .. Config.MacroSequence[i].Key
+    KeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    KeyBtn.TextSize = 12
+    KeyBtn.Parent = StepFrame
+
+    local keysList = {"Z", "X", "C", "V", "F"}
+    KeyBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(keysList, Config.MacroSequence[i].Key) or 1
+        local nextIdx = (currentIdx % #keysList) + 1
+        Config.MacroSequence[i].Key = keysList[nextIdx]
+        KeyBtn.Text = "Phím: " .. keysList[nextIdx]
+    end)
+
+    local WeaponBtn = Instance.new("TextButton")
+    WeaponBtn.Size = UDim2.new(0.25, 0, 0.6, 0)
+    WeaponBtn.Position = UDim2.new(0.48, 0, 0.2, 0)
+    WeaponBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    WeaponBtn.Text = "Vũ khí: " .. Config.MacroSequence[i].Weapon
+    WeaponBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    WeaponBtn.TextSize = 11
+    WeaponBtn.Parent = StepFrame
+
+    local weaponsList = {"Melee", "Sword", "Fruit", "Gun"}
+    WeaponBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(weaponsList, Config.MacroSequence[i].Weapon) or 1
+        local nextIdx = (currentIdx % #weaponsList) + 1
+        Config.MacroSequence[i].Weapon = weaponsList[nextIdx]
+        WeaponBtn.Text = "Vũ khí: " .. weaponsList[nextIdx]
+    end)
+
+    local DelayBtn = Instance.new("TextButton")
+    DelayBtn.Size = UDim2.new(0.22, 0, 0.6, 0)
+    DelayBtn.Position = UDim2.new(0.75, 0, 0.2, 0)
+    DelayBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    DelayBtn.Text = "Chờ: " .. Config.MacroSequence[i].Delay .. "s"
+    DelayBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DelayBtn.TextSize = 12
+    DelayBtn.Parent = StepFrame
+
+    local delaysList = {0.1, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0}
+    DelayBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(delaysList, Config.MacroSequence[i].Delay) or 3
+        local nextIdx = (currentIdx % #delaysList) + 1
+        Config.MacroSequence[i].Delay = delaysList[nextIdx]
+        DelayBtn.Text = "Chờ: " .. delaysList[nextIdx] .. "s"
+    end)
+end
+
+          print("Script ESP & Aimbot & Macro loaded. No errors.")
