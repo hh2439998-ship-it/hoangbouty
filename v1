@@ -1,0 +1,511 @@
+-- [[ BLOX FRUITS PVP & MACRO SCRIPT ]] --
+-- Ngôn ngữ: Tiếng Việt | Giao diện: Tùy chỉnh trực quan
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+
+-- Cấu hình trạng thái mặc định
+local Config = {
+    WalkSpeed = 16,
+    JumpPower = 50,
+    AimbotEnabled = false,
+    FovRadius = 100,
+    FovVisible = false,
+    TrackTarget = false, -- Tự động đi theo mục tiêu khi dùng chiêu
+    MacroEnabled = false,
+    MacroSequence = {} -- Lưu trữ 10 bước combo
+}
+
+-- Khởi tạo 10 bước trống cho Macro
+for i = 1, 10 do
+    Config.MacroSequence[i] = {
+        Key = "Z",          -- Phím mặc định
+        Weapon = "Melee",   -- Loại vũ khí: Melee, Sword, Fruit, Gun
+        Delay = 0.5         -- Thời gian chờ sau khi tung chiêu
+    }
+end
+
+-- Vòng tròn FOV ẩn/hiện bằng Drawing API
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(255, 215, 0) -- Màu vàng
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- ==========================================
+-- HÀM TIỆN ÍCH TRONG GAME (UTILITIES)
+-- ==========================================
+
+-- Lấy người chơi gần nhất trong vòng FOV
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
+            if onScreen then
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                if distance <= Config.FovRadius and distance < shortestDistance then
+                    closestPlayer = player
+                    shortestDistance = distance
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Tự động trang bị vũ khí dựa trên phân loại
+local function EquipWeapon(weaponType)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    if not character or not backpack then return end
+    
+    -- Hủy trang bị công cụ hiện tại trước
+    for _, item in pairs(character:GetChildren()) do
+        if item:IsA("Tool") then
+            item.Parent = backpack
+        end
+    end
+    
+    -- Tìm vũ khí phù hợp trong balo
+    for _, tool in pairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            -- Kiểm tra thuộc tính hoặc tên của vũ khí (Ví dụ cơ bản)
+            local match = false
+            if weaponType == "Melee" and (tool:FindFirstChild("Combat") or tool:FindFirstChild("Melee") or string.find(tool.Name, "Style")) then match = true
+            elseif weaponType == "Sword" and tool:FindFirstChild("Sword") then match = true
+            elseif weaponType == "Fruit" and (string.find(tool.Name, "Fruit") or tool:FindFirstChild("Eat")) then match = true
+            elseif weaponType == "Gun" and tool:FindFirstChild("Gun") then match = true
+            end
+            
+            if match or tool.Name == weaponType then -- Dự phòng nếu đặt tên trùng trực tiếp
+                tool.Parent = character
+                break
+            end
+        end
+    end
+end
+
+-- Kích hoạt phím kỹ năng ảo
+local function ActivateSkill(key)
+    -- Giả lập nhấn phím (Chỉ hoạt động trên các Executor hỗ trợ các hàm ảo)
+    if keypress then
+        local keyCode = Enum.KeyCode[key].Value
+        keypress(keyCode)
+        task.wait(0.05)
+        keyrelease(keyCode)
+    end
+end
+
+-- Vòng lặp duy trì Tốc độ chạy và Nhảy
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = Config.WalkSpeed
+                LocalPlayer.Character.Humanoid.JumpPower = Config.JumpPower
+                LocalPlayer.Character.Humanoid.UseJumpPower = true
+            end
+        end)
+    end
+end)
+
+-- Vòng lặp Camera Aimbot và di chuyển theo địch khi giữ chiêu
+RunService.RenderStepped:Connect(function()
+    -- Cập nhật vòng tròn FOV
+    if Config.FovVisible then
+        FOVCircle.Position = UserInputService:GetMouseLocation()
+        FOVCircle.Radius = Config.FovRadius
+        FOVCircle.Visible = true
+    else
+        FOVCircle.Visible = false
+    end
+    
+    -- Xử lý Aimbot Camera
+    if Config.AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local targetHRP = target.Character.HumanoidRootPart
+            -- Di chuyển Camera mượt mà về hướng mục tiêu
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHRP.Position)
+            
+            -- Nếu bật tính năng tự bám đuôi khi giữ nút kỹ năng
+            if Config.TrackTarget and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local isHoldingSkill = UserInputService:IsKeyDown(Enum.KeyCode.Z) or UserInputService:IsKeyDown(Enum.KeyCode.X) or UserInputService:IsKeyDown(Enum.KeyCode.C) or UserInputService:IsKeyDown(Enum.KeyCode.V) or UserInputService:IsKeyDown(Enum.KeyCode.F)
+                if isHoldingSkill then
+                    -- Di chuyển nhân vật của bạn áp sát mục tiêu
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3)
+                end
+            end
+        end
+    end
+end)
+
+-- Thực thi Macro Combo tuần tự
+local function RunMacroCombo()
+    if not Config.MacroEnabled then return end
+    for i = 1, #Config.MacroSequence do
+        if not Config.MacroEnabled then break end -- Dừng khẩn cấp nếu tắt nút
+        local step = Config.MacroSequence[i]
+        
+        -- Bước 1: Đổi vũ khí
+        EquipWeapon(step.Weapon)
+        task.wait(0.1)
+        
+        -- Bước 2: Tung chiêu
+        ActivateSkill(step.Key)
+        
+        -- Bước 3: Chờ thời gian giãn cách đã cài đặt
+        task.wait(step.Delay)
+    end
+end
+
+-- ==========================================
+-- GIAO DIỆN NGƯỜI DÙNG (CUSTOM UI SCREEN)
+-- ==========================================
+
+-- Tạo ScreenGui gốc
+local MainGui = Instance.new("ScreenGui")
+MainGui.Name = "BloxFruitsPvPMacroUI"
+MainGui.ResetOnSpawn = false
+MainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+-- Tự động chèn vào môi trường CoreGui hoặc PlayerGui tùy thuộc quyền Executor
+if syn and syn.protect_gui then syn.protect_gui(MainGui) end
+MainGui.Parent = game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
+
+-- Khung chính UI
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 550, 0, 400)
+MainFrame.Position = UDim2.new(0.3, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Cho phép kéo thả giao diện trên màn hình
+MainFrame.Parent = MainGui
+
+-- Bo góc khung chính
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- Nút Ẩn/Hiện Menu thu nhỏ (Toggle Button)
+local MenuToggleButton = Instance.new("TextButton")
+MenuToggleButton.Size = UDim2.new(0, 40, 0, 40)
+MenuToggleButton.Position = UDim2.new(0.02, 0, 0.02, 0)
+MenuToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MenuToggleButton.Text = "⚡"
+MenuToggleButton.TextColor3 = Color3.fromRGB(255, 215, 0)
+MenuToggleButton.TextSize = 20
+MenuToggleButton.Parent = MainGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 20)
+ToggleCorner.Parent = MenuToggleButton
+
+MenuToggleButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
+-- Thanh tiêu đề lớn bên trong Menu
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 40)
+TitleLabel.Text = "   BLOX FRUITS PVP & MACRO HUB"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleLabel.BorderSizePixel = 0
+TitleLabel.Parent = MainFrame
+
+-- Hàm sinh thanh trượt (Slider) giống như mô tả của bạn
+local function CreateSlider(parent, name, min, max, default, yPos, callback)
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(0.9, 0, 0, 50)
+    Container.Position = UDim2.new(0.05, 0, 0, yPos)
+    Container.BackgroundTransparency = 1
+    Container.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, 0, 0, 20)
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Container
+
+    -- Đường rãnh trượt chính "-------"
+    local SliderLine = Instance.new("Frame")
+    SliderLine.Size = UDim2.new(0.8, 0, 0, 6)
+    SliderLine.Position = UDim2.new(0, 0, 0, 30)
+    SliderLine.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    SliderLine.BorderSizePixel = 0
+    SliderLine.Parent = Container
+
+    -- Vùng hiển thị màu xanh đã kéo qua
+    local FillLine = Instance.new("Frame")
+    FillLine.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    FillLine.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Ô xanh lục mượt mà
+    FillLine.BorderSizePixel = 0
+    FillLine.Parent = SliderLine
+
+    -- Nút "|" nằm ở giữa để nắm kéo
+    local SliderBtn = Instance.new("TextButton")
+    SliderBtn.Size = UDim2.new(0, 10, 0, 20)
+    SliderBtn.Position = UDim2.new((default - min) / (max - min), -5, -1, -5)
+    SliderBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    SliderBtn.Text = "|"
+    SliderBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    SliderBtn.TextSize = 12
+    SliderBtn.Parent = SliderLine
+
+    -- Ô số hiển thị giá trị hiện tại ở phía cuối thanh trượt
+    local ValueBox = Instance.new("TextLabel")
+    ValueBox.Size = UDim2.new(0, 50, 0, 20)
+    ValueBox.Position = UDim2.new(0.85, 0, 0, 23)
+    ValueBox.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Ô xanh hiển thị
+    ValueBox.Text = tostring(default)
+    ValueBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ValueBox.TextSize = 14
+    ValueBox.Parent = Container
+
+    -- Logic bắt sự kiện kéo thả chuột
+    local dragging = false
+    SliderBtn.MouseButton1Down:Connect(function() dragging = true end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local mouseX = input.Position.X
+            local lineLeft = SliderLine.AbsolutePosition.X
+            local lineWidth = SliderLine.AbsoluteSize.X
+            local percentage = math.clamp((mouseX - lineLeft) / lineWidth, 0, 1)
+            
+            SliderBtn.Position = UDim2.new(percentage, -5, -1, -5)
+            FillLine.Size = UDim2.new(percentage, 0, 1, 0)
+            
+            local val = math.floor(min + (max - min) * percentage)
+            ValueBox.Text = tostring(val)
+            callback(val)
+        end
+    end)
+end
+
+-- Hàm tạo các nút bật/tắt (Toggle Button có nút Tick)
+local function CreateToggle(parent, name, yPos, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.9, 0, 0, 40)
+    Frame.Position = UDim2.new(0.05, 0, 0, yPos)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0, 30, 0, 30)
+    Button.Position = UDim2.new(0.8, 0, 0.05, 0)
+    Button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Button.Text = "" -- Rỗng khi chưa bật
+    Button.TextColor3 = Color3.fromRGB(46, 204, 113)
+    Button.TextSize = 18
+    Button.Parent = Frame
+    
+    local enabled = false
+    Button.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        Button.Text = enabled and "✓" or "" -- Hiện dấu tick xanh khi bật
+        callback(enabled)
+    end)
+end
+
+-- Phân chia các Tab Menu mục riêng biệt
+local TabContainer = Instance.new("Frame")
+TabContainer.Size = UDim2.new(1, 0, 0, 30)
+TabContainer.Position = UDim2.new(0, 0, 0, 40)
+TabContainer.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TabContainer.Parent = MainFrame
+
+local Tab1Btn = Instance.new("TextButton")
+Tab1Btn.Size = UDim2.new(0.5, 0, 1, 0)
+Tab1Btn.Text = "Thông số nhân vật"
+Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Tab1Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Tab1Btn.Parent = TabContainer
+
+local Tab2Btn = Instance.new("TextButton")
+Tab2Btn.Size = UDim2.new(0.5, 0, 1, 0)
+Tab2Btn.Position = UDim2.new(0.5, 0, 0, 0)
+Tab2Btn.Text = "PvP / Aimbot / Macro"
+Tab2Btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+Tab2Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Tab2Btn.Parent = TabContainer
+
+-- Khung nội dung cho từng Tab
+local Tab1Page = Instance.new("ScrollingFrame")
+Tab1Page.Size = UDim2.new(1, 0, 1, -70)
+Tab1Page.Position = UDim2.new(0, 0, 0, 70)
+Tab1Page.BackgroundTransparency = 1
+Tab1Page.CanvasSize = UDim2.new(0, 0, 1.5, 0)
+Tab1Page.Visible = true
+Tab1Page.Parent = MainFrame
+
+local Tab2Page = Instance.new("ScrollingFrame")
+Tab2Page.Size = UDim2.new(1, 0, 1, -70)
+Tab2Page.Position = UDim2.new(0, 0, 0, 70)
+Tab2Page.BackgroundTransparency = 1
+Tab2Page.CanvasSize = UDim2.new(0, 0, 2.5, 0) -- Trang dài hơn cho 10 bước Combo Macro
+Tab2Page.Visible = false
+Tab2Page.Parent = MainFrame
+
+-- Sự kiện chuyển đổi Tab linh hoạt giữa các mục
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = true; Tab2Page.Visible = false
+    Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab1Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Tab2Btn.TextColor3 = Color3.fromRGB(150, 150, 150); Tab2Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+end)
+
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = false; Tab2Page.Visible = true
+    Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab2Btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Tab1Btn.TextColor3 = Color3.fromRGB(150, 150, 150); Tab1Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+end)
+
+-- ==========================================
+-- THIẾT LẬP THÀNH PHẦN TRONG TAB 1 (THÔNG SỐ)
+-- ==========================================
+
+CreateSlider(Tab1Page, "Tốc độ chạy (Speed)", 16, 400, 16, 20, function(value)
+    Config.WalkSpeed = value
+end)
+
+CreateSlider(Tab1Page, "Độ cao nhảy (Jump Power)", 50, 400, 50, 90, function(value)
+    Config.JumpPower = value
+end)
+
+-- ==========================================
+-- THIẾT LẬP THÀNH PHẦN TRONG TAB 2 (PVP/AIM/MACRO)
+-- ==========================================
+
+CreateToggle(Tab2Page, "Bật Aimbot Camera khóa mục tiêu gần nhất", 10, function(state)
+    Config.AimbotEnabled = state
+end)
+
+CreateToggle(Tab2Page, "Hiện vòng tròn giới hạn FOV (Màu vàng)", 55, function(state)
+    Config.FovVisible = state
+end)
+
+CreateSlider(Tab2Page, "Kích thước vùng quét FOV (1 - 1600)", 1, 1600, 100, 100, function(value)
+    Config.FovRadius = value
+end)
+
+CreateToggle(Tab2Page, "Tự bám sát áp sát mục tiêu khi giữ chiêu", 165, function(state)
+    Config.TrackTarget = state
+end)
+
+-- Phân vùng riêng cho nút kích hoạt chuỗi Combo Macro
+CreateToggle(Tab2Page, "KÍCH HOẠT VÒNG LẶP MACRO COMBO", 215, function(state)
+    Config.MacroEnabled = state
+    if state then
+        task.spawn(function()
+            while Config.MacroEnabled do
+                RunMacroCombo()
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+-- Xây dựng cấu trúc danh sách cài đặt cho 10 bước liên tục
+local startY = 270
+for i = 1, 10 do
+    local StepFrame = Instance.new("Frame")
+    StepFrame.Size = UDim2.new(0.9, 0, 0, 70)
+    StepFrame.Position = UDim2.new(0.05, 0, 0, startY + ((i - 1) * 80))
+    StepFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    StepFrame.Parent = Tab2Page
+
+    local StepCorner = Instance.new("UICorner")
+    StepCorner.CornerRadius = UDim.new(0, 5)
+    StepCorner.Parent = StepFrame
+
+    local StepLabel = Instance.new("TextLabel")
+    StepLabel.Size = UDim2.new(0.2, 0, 1, 0)
+    StepLabel.Text = "Bước " .. i
+    StepLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    StepLabel.TextSize = 14
+    StepLabel.BackgroundTransparency = 1
+    StepLabel.Parent = StepFrame
+
+    -- Ô lựa chọn nhanh phím (Z, X, C, V, F)
+    local KeyBtn = Instance.new("TextButton")
+    KeyBtn.Size = UDim2.new(0.2, 0, 0.6, 0)
+    KeyBtn.Position = UDim2.new(0.25, 0, 0.2, 0)
+    KeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    KeyBtn.Text = "Phím: " .. Config.MacroSequence[i].Key
+    KeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    KeyBtn.TextSize = 12
+    KeyBtn.Parent = StepFrame
+
+    local keysList = {"Z", "X", "C", "V", "F"}
+    KeyBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(keysList, Config.MacroSequence[i].Key) or 1
+        local nextIdx = (currentIdx % #keysList) + 1
+        Config.MacroSequence[i].Key = keysList[nextIdx]
+        KeyBtn.Text = "Phím: " .. keysList[nextIdx]
+    end)
+
+    -- Ô lựa chọn phân loại vũ khí (Melee, Sword, Fruit, Gun)
+    local WeaponBtn = Instance.new("TextButton")
+    WeaponBtn.Size = UDim2.new(0.25, 0, 0.6, 0)
+    WeaponBtn.Position = UDim2.new(0.48, 0, 0.2, 0)
+    WeaponBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    WeaponBtn.Text = "Vũ khí: " .. Config.MacroSequence[i].Weapon
+    WeaponBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    WeaponBtn.TextSize = 11
+    WeaponBtn.Parent = StepFrame
+
+    local weaponsList = {"Melee", "Sword", "Fruit", "Gun"}
+    WeaponBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(weaponsList, Config.MacroSequence[i].Weapon) or 1
+        local nextIdx = (currentIdx % #weaponsList) + 1
+        Config.MacroSequence[i].Weapon = weaponsList[nextIdx]
+        WeaponBtn.Text = "Vũ khí: " .. weaponsList[nextIdx]
+    end)
+
+    -- Thay đổi thời gian delay giãn cách của bước này
+    local DelayBtn = Instance.new("TextButton")
+    DelayBtn.Size = UDim2.new(0.22, 0, 0.6, 0)
+    DelayBtn.Position = UDim2.new(0.75, 0, 0.2, 0)
+    DelayBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    DelayBtn.Text = "Chờ: " .. Config.MacroSequence[i].Delay .. "s"
+    DelayBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DelayBtn.TextSize = 12
+    DelayBtn.Parent = StepFrame
+
+    local delaysList = {0.1, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0}
+    DelayBtn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(delaysList, Config.MacroSequence[i].Delay) or 3
+        local nextIdx = (currentIdx % #delaysList) + 1
+        Config.MacroSequence[i].Delay = delaysList[nextIdx]
+        DelayBtn.Text = "Chờ: " .. delaysList[nextIdx] .. "s"
+    end)
+end
+
+print("Script Blox Fruits PvP & Macro đã tải thành công!")
