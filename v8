@@ -1,0 +1,471 @@
+-- ====================================================================
+-- ✦ BLOX FRUITS PVP & MACRO HUB V5 - FIX LOGIC BẬC CAO ✦
+-- PHẦN 1 (Dán vào Executor)
+-- ====================================================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+local Config = {
+    SpeedPlayer = false, -- Logic Velocity Multiplier mới
+    WalkSpeed = 50, -- Hệ số tốc độ
+    JumpPower = 50,
+    SilentAim = false,
+    FovRadius = 120,
+    FovVisible = true,
+    ESPEnabled = false,
+    KillAura = false,
+    FastAttackRedz = false,
+    MacroSequence = {}
+}
+
+-- Khởi tạo 10 bước Macro (Độ trễ tính bằng mili-giây - ms)
+for i = 1, 10 do Config.MacroSequence[i] = { Key = "Z", Weapon = "Melee", DelayMs = 50 } end
+
+-- Vòng FOV
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(0, 255, 128)
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = Config.FovVisible
+
+-- Tia đỏ (Tracer Line) cho Silent Aim
+local TracerLine = Drawing.new("Line")
+TracerLine.Color = Color3.fromRGB(255, 30, 30)
+TracerLine.Thickness = 2
+TracerLine.Visible = false
+
+local function MakeUiDraggable(guiObject)
+    local dragging, dragInput, dragStart, startPos
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragStart = input.Position; startPos = guiObject.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+-- ==========================================
+-- LOGIC TỐC ĐỘ: SPEED PLAYER (VELOCITY MULTIPLIER / CFRAME TRANSLATION)
+-- ==========================================
+RunService.RenderStepped:Connect(function(deltaTime)
+    if Config.SpeedPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hum = LocalPlayer.Character.Humanoid
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        
+        -- Logic: Ép nhân vật tịnh tiến theo hướng đang di chuyển (MoveDirection)
+        if hum.MoveDirection.Magnitude > 0 then
+            hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (Config.WalkSpeed - hum.WalkSpeed) * deltaTime)
+        end
+        hum.JumpPower = Config.JumpPower
+        hum.UseJumpPower = true
+    end
+end)
+
+-- ==========================================
+-- CƠ CHẾ FAST ATTACK REDZ & KILL AURA GỐC (KHÔNG DÙNG VIRTUAL USER)
+-- ==========================================
+local NetModule = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+
+task.spawn(function()
+    while task.wait(0.01) do
+        if Config.KillAura or Config.FastAttackRedz then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+
+                local tool = char:FindFirstChildOfClass("Tool")
+                if tool and (tool.ToolTip == 'Melee' or tool.ToolTip == 'Sword') then
+                    
+                    -- Logic Kill Aura an toàn bằng Tool:Activate() (Gửi tín hiệu trực tiếp)
+                    if Config.KillAura then
+                        tool:Activate()
+                    end
+
+                    -[span_5](start_span)- Logic Fast Attack (Redz) gửi gói tin thẳng tới máy chủ[span_5](end_span)
+                    if Config.FastAttackRedz and NetModule then
+                        local enemies = Workspace.Enemies:GetChildren()
+                        local u17 = {}
+                        for _, mob in pairs(enemies) do
+                            local eRoot = mob:FindFirstChild("HumanoidRootPart")
+                            if eRoot and mob:FindFirstChild("Humanoid") and mob.Humanoid.Health > 0 and (eRoot.Position - hrp.Position).Magnitude <= 65 then
+                                for _, part in ipairs(mob:GetChildren()) do
+                                    if part:IsA("BasePart") then table.insert(u17, {mob, part}) end
+                                end
+                            end
+                        end
+
+                        if #u17 > 0 then
+                            require(NetModule):RemoteEvent('RegisterHit', true)
+                            if NetModule:FindFirstChild('RE/RegisterAttack') then
+                                NetModule['RE/RegisterAttack']:FireServer()
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+                              -- ====================================================================
+-- ✦ BLOX FRUITS PVP & MACRO HUB V5 - PHẦN 2 ✦
+-- (Dán nối tiếp vào phía dưới Phần 1)
+-- ====================================================================
+
+-- ==========================================
+-- HÀM QUÉT FOV MỤC TIÊU 
+-- ==========================================
+local function GetClosestPlayer()
+    local closest = nil; local shortestDist = math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                if dist <= Config.FovRadius and dist < shortestDist then
+                    closest = player; shortestDist = dist
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- ==========================================
+-- TRUE SILENT AIM (LOGIC BẺ GÓC ĐÒN ĐÁNH 100% VÀO FOV)
+-- ==========================================
+local oldIndex
+oldIndex = hookmetamethod(game, "__index", function(self, key)
+    -- Kiểm tra nghiêm ngặt: Chỉ đánh lừa khi bản thân con chuột của người chơi gửi request (Hit/Target)
+    if Config.SilentAim and self == Mouse and not checkcaller() then
+        if key == "Hit" or key == "Target" then
+            local target = GetClosestPlayer()
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                if key == "Hit" then return target.Character.HumanoidRootPart.CFrame end
+                if key == "Target" then return target.Character.HumanoidRootPart end
+            end
+        end
+    end
+    return oldIndex(self, key)
+end)
+
+-- ==========================================
+-- LOGIC MACRO COMBO CỰC HẠN (ZERO HUMAN ERROR)
+-- ==========================================
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local function EquipWeaponFast(weaponType)
+    local char = LocalPlayer.Character; local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not char or not backpack then return end
+
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local cName = currentTool.Name:lower()
+        if (weaponType == "Melee" and cName:find("combat") or cName:find("style") or cName:find("claw") or cName:find("god") or cName:find("sanguine")) or
+           (weaponType == "Sword" and cName:find("sword") or cName:find("blade") or cName:find("katana") or cName:find("spikey") or cName:find("cursed")) or
+           (weaponType == "Fruit" and cName:find("fruit") or cName:find("dough") or cName:find("portal") or cName:find("rumble")) or
+           (weaponType == "Gun" and cName:find("gun") or cName:find("soul") or cName:find("guitar") or cName:find("kabucha")) then
+            return -- Đang cầm đúng hệ, không bị khựng (Hit-stun logic)
+        end
+    end
+
+    for _, tool in pairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            local name = tool.Name:lower()
+            if (weaponType == "Melee" and (name:find("combat") or name:find("style") or name:find("god"))) or
+               (weaponType == "Sword" and (name:find("sword") or name:find("katana") or name:find("blade"))) or
+               (weaponType == "Fruit" and (name:find("fruit") or name:find("dough") or name:find("portal"))) or
+               (weaponType == "Gun" and (name:find("gun") or name:find("guitar"))) then
+                for _, item in pairs(char:GetChildren()) do if item:IsA("Tool") then item.Parent = backpack end end
+                tool.Parent = char; break
+            end
+        end
+    end
+end
+
+local function FireSkill(key)
+    local keyCode = Enum.KeyCode[key]
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    task.wait(0.02)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local IsMacroRunning = false
+local function RunMacroCombo()
+    if IsMacroRunning then return end
+    IsMacroRunning = true
+    for i = 1, #Config.MacroSequence do
+        if not IsMacroRunning then break end
+        local step = Config.MacroSequence[i]
+        EquipWeaponFast(step.Weapon)
+        task.wait(0.01) -- Swap delay triệt tiêu
+        FireSkill(step.Key)
+        task.wait(step.DelayMs / 1000) -- Độ trễ Mili-giây (Chống đối thủ bật Ken Haki)
+    end
+    IsMacroRunning = false
+end
+
+-- ==========================================
+-- ESP & VÒNG LẶP GIAO DIỆN CHÍNH
+-- ==========================================
+RunService.RenderStepped:Connect(function()
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Position = center; FOVCircle.Radius = Config.FovRadius; FOVCircle.Visible = Config.FovVisible
+    
+    local target = GetClosestPlayer()
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and Config.SilentAim then
+        local hrp = target.Character.HumanoidRootPart
+        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        if onScreen then
+            TracerLine.From = Vector2.new(center.X, Camera.ViewportSize.Y)
+            TracerLine.To = Vector2.new(pos.X, pos.Y)
+            TracerLine.Visible = true
+        else TracerLine.Visible = false end
+    else TracerLine.Visible = false end
+      end)
+      -- ====================================================================
+-- ✦ BLOX FRUITS PVP & MACRO HUB V5 - PHẦN 3 ✦
+-- (Dán nối tiếp vào phía dưới Phần 2)
+-- ====================================================================
+
+-- THIẾT KẾ GIAO DIỆN UI (CHỐNG KẸT DRAGGABLE)
+local MainGui = Instance.new("ScreenGui", game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui"))
+MainGui.Name = "BloxPvPLogicV5"
+MainGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame", MainGui)
+MainFrame.Size = UDim2.new(0, 560, 0, 430); MainFrame.Position = UDim2.new(0.3, 0, 0.25, 0); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+MakeUiDraggable(MainFrame)
+
+local MenuToggleButton = Instance.new("TextButton", MainGui)
+MenuToggleButton.Size = UDim2.new(0, 45, 0, 45); MenuToggleButton.Position = UDim2.new(0.01, 0, 0.01, 0); MenuToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30); MenuToggleButton.Text = "⚡"; MenuToggleButton.TextColor3 = Color3.fromRGB(0, 255, 128); MenuToggleButton.TextSize = 22
+Instance.new("UICorner", MenuToggleButton).CornerRadius = UDim.new(0, 8)
+MenuToggleButton.MouseButton1Click:Connect(function() MainFrame.Visible = not MainFrame.Visible end)
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(1, 0, 0, 40); Title.Text = "   BLOX PVP HUB V5 [ADVANCED LOGIC]"; Title.TextColor3 = Color3.fromRGB(255, 255, 255); Title.Font = Enum.Font.GothamBold; Title.TextSize = 15; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
+
+-- TABS
+local TabContainer = Instance.new("Frame", MainFrame)
+TabContainer.Size = UDim2.new(1, 0, 0, 35); TabContainer.Position = UDim2.new(0, 0, 0, 40); TabContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+
+local Tab1Btn = Instance.new("TextButton", TabContainer)
+Tab1Btn.Size = UDim2.new(0.5, 0, 1, 0); Tab1Btn.Text = "Cơ chế & Aim"; Tab1Btn.Font = Enum.Font.GothamBold; Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+local Tab2Btn = Instance.new("TextButton", TabContainer)
+Tab2Btn.Size = UDim2.new(0.5, 0, 1, 0); Tab2Btn.Position = UDim2.new(0.5, 0, 0, 0); Tab2Btn.Text = "Macro MS (Mili-giây)"; Tab2Btn.Font = Enum.Font.GothamBold; Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160); Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+
+local Tab1Page = Instance.new("ScrollingFrame", MainFrame); Tab1Page.Size = UDim2.new(1, 0, 1, -75); Tab1Page.Position = UDim2.new(0, 0, 0, 75); Tab1Page.BackgroundTransparency = 1; Tab1Page.ScrollBarThickness = 4
+local Tab2Page = Instance.new("ScrollingFrame", MainFrame); Tab2Page.Size = UDim2.new(1, 0, 1, -75); Tab2Page.Position = UDim2.new(0, 0, 0, 75); Tab2Page.BackgroundTransparency = 1; Tab2Page.ScrollBarThickness = 4; Tab2Page.Visible = false
+
+local L1 = Instance.new("UIListLayout", Tab1Page); L1.Padding = UDim.new(0, 6); L1.HorizontalAlignment = Enum.HorizontalAlignment.Center
+L1:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() Tab1Page.CanvasSize = UDim2.new(0, 0, 0, L1.AbsoluteContentSize.Y + 20) end)
+local L2 = Instance.new("UIListLayout", Tab2Page); L2.Padding = UDim.new(0, 6); L2.HorizontalAlignment = Enum.HorizontalAlignment.Center
+L2:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() Tab2Page.CanvasSize = UDim2.new(0, 0, 0, L2.AbsoluteContentSize.Y + 20) end)
+
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = true; Tab2Page.Visible = false
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = false; Tab2Page.Visible = true
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab1Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+
+-- HÀM TẠO THÀNH PHẦN UI
+local function CreateToggle(parent, text, callback)
+    local Frame = Instance.new("Frame", parent); Frame.Size = UDim2.new(0.95, 0, 0, 40); Frame.BackgroundTransparency = 1
+    local Label = Instance.new("TextLabel", Frame); Label.Size = UDim2.new(0.7, 0, 1, 0); Label.Text = "   " .. text; Label.TextColor3 = Color3.fromRGB(230, 230, 230); Label.Font = Enum.Font.Gotham; Label.TextSize = 14; Label.TextXAlignment = Enum.TextXAlignment.Left; Label.BackgroundTransparency = 1
+    local Btn = Instance.new("TextButton", Frame); Btn.Size = UDim2.new(0, 32, 0, 32); Btn.Position = UDim2.new(0.95, -32, 0.5, -16); Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); Btn.Text = ""; Btn.TextColor3 = Color3.fromRGB(0, 255, 128); Btn.Font = Enum.Font.GothamBold; Btn.TextSize = 18
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    local on = false
+    Btn.MouseButton1Click:Connect(function() on = not on; Btn.Text = on and "✓" or ""; Btn.BackgroundColor3 = on and Color3.fromRGB(35, 60, 45) or Color3.fromRGB(45, 45, 45); callback(on) end)
+end
+
+local function CreateSlider(parent, text, min, max, default, callback)
+    local Frame = Instance.new("Frame", parent); Frame.Size = UDim2.new(0.95, 0, 0, 50); Frame.BackgroundTransparency = 1
+    local Label = Instance.new("TextLabel", Frame); Label.Size = UDim2.new(1, 0, 0, 20); Label.Text = "   " .. text; Label.TextColor3 = Color3.fromRGB(230, 230, 230); Label.Font = Enum.Font.Gotham; Label.TextSize = 13; Label.TextXAlignment = Enum.TextXAlignment.Left; Label.BackgroundTransparency = 1
+    local ValueBox = Instance.new("TextLabel", Frame); ValueBox.Size = UDim2.new(0, 45, 0, 18); ValueBox.Position = UDim2.new(0.95, -45, 0, 0); ValueBox.BackgroundColor3 = Color3.fromRGB(0, 255, 128); ValueBox.TextColor3 = Color3.fromRGB(20, 20, 20); ValueBox.Font = Enum.Font.GothamBold; ValueBox.TextSize = 12; ValueBox.Text = tostring(default); Instance.new("UICorner", ValueBox).CornerRadius = UDim.new(0, 4)
+    local SliderBG = Instance.new("Frame", Frame); SliderBG.Size = UDim2.new(0.95, 0, 0, 6); SliderBG.Position = UDim2.new(0.025, 0, 0, 35); SliderBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50); Instance.new("UICorner", SliderBG).CornerRadius = UDim.new(1, 0)
+    local Fill = Instance.new("Frame", SliderBG); Fill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0); Fill.BackgroundColor3 = Color3.fromRGB(0, 255, 128); Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+    local Btn = Instance.new("TextButton", SliderBG); Btn.Size = UDim2.new(0, 14, 0, 14); Btn.Position = UDim2.new((default - min)/(max - min), -7, 0.5, -7); Btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255); Btn.Text = ""; Instance.new("UICorner", Btn).CornerRadius = UDim.new(1, 0)
+    local dragging = false
+    Btn.MouseButton1Down:Connect(function() dragging = true end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local pos = math.clamp((input.Position.X - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
+            Btn.Position = UDim2.new(pos, -7, 0.5, -7); Fill.Size = UDim2.new(pos, 0, 1, 0)
+            local val = math.floor(min + (max - min) * pos); ValueBox.Text = tostring(val); callback(val)
+        end
+    end)
+end
+
+-- ==========================================
+-- GẮN CHỨC NĂNG LÊN UI
+-- ==========================================
+CreateToggle(Tab1Page, "Kích hoạt Speed Player (Velocity Multiplier)", function(s) Config.SpeedPlayer = s end)
+CreateSlider(Tab1Page, "Hệ số tốc độ (WalkSpeed CFrame)", 16, 300, 50, function(v) Config.WalkSpeed = v end)
+CreateToggle(Tab1Page, "True Silent Aim (FOV Logic - 100% Hit)", function(s) Config.SilentAim = s end)
+CreateToggle(Tab1Page, "Bật vòng quét FOV & Tia Laser Đỏ", function(s) Config.FovVisible = s; FOVCircle.Visible = s end)
+CreateSlider(Tab1Page, "Độ rộng vùng quét FOV", 10, 1000, 120, function(v) Config.FovRadius = v end)
+CreateToggle(Tab1Page, "Kill Aura (Logic Tool - Không ảo hóa)", function(s) Config.KillAura = s end)
+CreateToggle(Tab1Page, "Fast Attack (Xóa độ trễ Remote)", function(s) Config.FastAttackRedz = s end)
+
+CreateToggle(Tab2Page, "BẬT CHUỖI MACRO COMBO MS", function(s)
+    if s then task.spawn(function() while s do RunMacroCombo(); task.wait(0.01) end end) else IsMacroRunning = false end
+end)
+
+for i = 1, 10 do
+    local StepFrame = Instance.new("Frame", Tab2Page); StepFrame.Size = UDim2.new(0.95, 0, 0, 45); StepFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28); Instance.new("UICorner", StepFrame).CornerRadius = UDim.new(0, 6)
+    local Lbl = Instance.new("TextLabel", StepFrame); Lbl.Size = UDim2.new(0.12, 0, 1, 0); Lbl.BackgroundTransparency = 1; Lbl.Text = "B_"..i; Lbl.Font = Enum.Font.GothamBold; Lbl.TextColor3 = Color3.fromRGB(0, 255, 128); Lbl.TextSize = 13
+    
+    local KeyBtn = Instance.new("TextButton", StepFrame); KeyBtn.Size = UDim2.new(0.2, 0, 0.7, 0); KeyBtn.Position = UDim2.new(0.14, 0, 0.15, 0); KeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); KeyBtn.Text = Config.MacroSequence[i].Key; KeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255); KeyBtn.Font = Enum.Font.GothamBold; KeyBtn.TextSize = 12; Instance.new("UICorner", KeyBtn).CornerRadius = UDim.new(0, 5)
+    local keys = {"Z", "X", "C", "V", "F"}
+    KeyBtn.MouseButton1Click:Connect(function() local idx = table.find(keys, Config.MacroSequence[i].Key) or 1; Config.MacroSequence[i].Key = keys[(idx % #keys) + 1]; KeyBtn.Text = Config.MacroSequence[i].Key end)
+
+    local WeapBtn = Instance.new("TextButton", StepFrame); WeapBtn.Size = UDim2.new(0.25, 0, 0.7, 0); WeapBtn.Position = UDim2.new(0.36, 0, 0.15, 0); WeapBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); WeapBtn.Text = Config.MacroSequence[i].Weapon; WeapBtn.TextColor3 = Color3.fromRGB(255, 255, 255); WeapBtn.Font = Enum.Font.GothamBold; WeapBtn.TextSize = 12; Instance.new("UICorner", WeapBtn).CornerRadius = UDim.new(0, 5)
+    local weaps = {"Melee", "Sword", "Fruit", "Gun"}
+    WeapBtn.MouseButton1Click:Connect(function() local idx = table.find(weaps, Config.MacroSequence[i].Weapon) or 1; Config.MacroSequence[i].Weapon = weaps[(idx % #weaps) + 1]; WeapBtn.Text = Config.MacroSequence[i].Weapon end)
+
+    local DelayInput = Instance.new("TextBox", StepFrame); DelayInput.Size = UDim2.new(0, 95, 0, 30); DelayInput.Position = UDim2.new(0.65, 0, 0.15, 0); DelayInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45); DelayInput.Text = tostring(Config.MacroSequence[i].DelayMs) .. " ms"; DelayInput.TextColor3 = Color3.fromRGB(0, 255, 128); DelayInput.Font = Enum.Font.GothamBold; DelayInput.TextSize = 12; DelayInput.ClearTextOnFocus = false; Instance.new("UICorner", DelayInput).CornerRadius = UDim.new(0, 5)
+    DelayInput.FocusLost:Connect(function() local val = tonumber(string.match(DelayInput.Text, "%d+")); if val then Config.MacroSequence[i].DelayMs = val; DelayInput.Text = val .. " ms" else DelayInput.Text = Config.MacroSequence[i].DelayMs .. " ms" end end)
+      end
+      -- ====================================================================
+-- ✦ BLOX FRUITS PVP & MACRO HUB V5 - PHẦN 3 ✦
+-- (Dán nối tiếp vào phía dưới Phần 2)
+-- ====================================================================
+
+-- THIẾT KẾ GIAO DIỆN UI (CHỐNG KẸT DRAGGABLE)
+local MainGui = Instance.new("ScreenGui", game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui"))
+MainGui.Name = "BloxPvPLogicV5"
+MainGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame", MainGui)
+MainFrame.Size = UDim2.new(0, 560, 0, 430); MainFrame.Position = UDim2.new(0.3, 0, 0.25, 0); MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+MakeUiDraggable(MainFrame)
+
+local MenuToggleButton = Instance.new("TextButton", MainGui)
+MenuToggleButton.Size = UDim2.new(0, 45, 0, 45); MenuToggleButton.Position = UDim2.new(0.01, 0, 0.01, 0); MenuToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30); MenuToggleButton.Text = "⚡"; MenuToggleButton.TextColor3 = Color3.fromRGB(0, 255, 128); MenuToggleButton.TextSize = 22
+Instance.new("UICorner", MenuToggleButton).CornerRadius = UDim.new(0, 8)
+MenuToggleButton.MouseButton1Click:Connect(function() MainFrame.Visible = not MainFrame.Visible end)
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(1, 0, 0, 40); Title.Text = "   BLOX PVP HUB V5 [ADVANCED LOGIC]"; Title.TextColor3 = Color3.fromRGB(255, 255, 255); Title.Font = Enum.Font.GothamBold; Title.TextSize = 15; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
+
+-- TABS
+local TabContainer = Instance.new("Frame", MainFrame)
+TabContainer.Size = UDim2.new(1, 0, 0, 35); TabContainer.Position = UDim2.new(0, 0, 0, 40); TabContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+
+local Tab1Btn = Instance.new("TextButton", TabContainer)
+Tab1Btn.Size = UDim2.new(0.5, 0, 1, 0); Tab1Btn.Text = "Cơ chế & Aim"; Tab1Btn.Font = Enum.Font.GothamBold; Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255); Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+local Tab2Btn = Instance.new("TextButton", TabContainer)
+Tab2Btn.Size = UDim2.new(0.5, 0, 1, 0); Tab2Btn.Position = UDim2.new(0.5, 0, 0, 0); Tab2Btn.Text = "Macro MS (Mili-giây)"; Tab2Btn.Font = Enum.Font.GothamBold; Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160); Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+
+local Tab1Page = Instance.new("ScrollingFrame", MainFrame); Tab1Page.Size = UDim2.new(1, 0, 1, -75); Tab1Page.Position = UDim2.new(0, 0, 0, 75); Tab1Page.BackgroundTransparency = 1; Tab1Page.ScrollBarThickness = 4
+local Tab2Page = Instance.new("ScrollingFrame", MainFrame); Tab2Page.Size = UDim2.new(1, 0, 1, -75); Tab2Page.Position = UDim2.new(0, 0, 0, 75); Tab2Page.BackgroundTransparency = 1; Tab2Page.ScrollBarThickness = 4; Tab2Page.Visible = false
+
+local L1 = Instance.new("UIListLayout", Tab1Page); L1.Padding = UDim.new(0, 6); L1.HorizontalAlignment = Enum.HorizontalAlignment.Center
+L1:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() Tab1Page.CanvasSize = UDim2.new(0, 0, 0, L1.AbsoluteContentSize.Y + 20) end)
+local L2 = Instance.new("UIListLayout", Tab2Page); L2.Padding = UDim.new(0, 6); L2.HorizontalAlignment = Enum.HorizontalAlignment.Center
+L2:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() Tab2Page.CanvasSize = UDim2.new(0, 0, 0, L2.AbsoluteContentSize.Y + 20) end)
+
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = true; Tab2Page.Visible = false
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = false; Tab2Page.Visible = true
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab1Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+
+-- HÀM TẠO THÀNH PHẦN UI
+local function CreateToggle(parent, text, callback)
+    local Frame = Instance.new("Frame", parent); Frame.Size = UDim2.new(0.95, 0, 0, 40); Frame.BackgroundTransparency = 1
+    local Label = Instance.new("TextLabel", Frame); Label.Size = UDim2.new(0.7, 0, 1, 0); Label.Text = "   " .. text; Label.TextColor3 = Color3.fromRGB(230, 230, 230); Label.Font = Enum.Font.Gotham; Label.TextSize = 14; Label.TextXAlignment = Enum.TextXAlignment.Left; Label.BackgroundTransparency = 1
+    local Btn = Instance.new("TextButton", Frame); Btn.Size = UDim2.new(0, 32, 0, 32); Btn.Position = UDim2.new(0.95, -32, 0.5, -16); Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); Btn.Text = ""; Btn.TextColor3 = Color3.fromRGB(0, 255, 128); Btn.Font = Enum.Font.GothamBold; Btn.TextSize = 18
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    local on = false
+    Btn.MouseButton1Click:Connect(function() on = not on; Btn.Text = on and "✓" or ""; Btn.BackgroundColor3 = on and Color3.fromRGB(35, 60, 45) or Color3.fromRGB(45, 45, 45); callback(on) end)
+end
+
+local function CreateSlider(parent, text, min, max, default, callback)
+    local Frame = Instance.new("Frame", parent); Frame.Size = UDim2.new(0.95, 0, 0, 50); Frame.BackgroundTransparency = 1
+    local Label = Instance.new("TextLabel", Frame); Label.Size = UDim2.new(1, 0, 0, 20); Label.Text = "   " .. text; Label.TextColor3 = Color3.fromRGB(230, 230, 230); Label.Font = Enum.Font.Gotham; Label.TextSize = 13; Label.TextXAlignment = Enum.TextXAlignment.Left; Label.BackgroundTransparency = 1
+    local ValueBox = Instance.new("TextLabel", Frame); ValueBox.Size = UDim2.new(0, 45, 0, 18); ValueBox.Position = UDim2.new(0.95, -45, 0, 0); ValueBox.BackgroundColor3 = Color3.fromRGB(0, 255, 128); ValueBox.TextColor3 = Color3.fromRGB(20, 20, 20); ValueBox.Font = Enum.Font.GothamBold; ValueBox.TextSize = 12; ValueBox.Text = tostring(default); Instance.new("UICorner", ValueBox).CornerRadius = UDim.new(0, 4)
+    local SliderBG = Instance.new("Frame", Frame); SliderBG.Size = UDim2.new(0.95, 0, 0, 6); SliderBG.Position = UDim2.new(0.025, 0, 0, 35); SliderBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50); Instance.new("UICorner", SliderBG).CornerRadius = UDim.new(1, 0)
+    local Fill = Instance.new("Frame", SliderBG); Fill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0); Fill.BackgroundColor3 = Color3.fromRGB(0, 255, 128); Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+    local Btn = Instance.new("TextButton", SliderBG); Btn.Size = UDim2.new(0, 14, 0, 14); Btn.Position = UDim2.new((default - min)/(max - min), -7, 0.5, -7); Btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255); Btn.Text = ""; Instance.new("UICorner", Btn).CornerRadius = UDim.new(1, 0)
+    local dragging = false
+    Btn.MouseButton1Down:Connect(function() dragging = true end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local pos = math.clamp((input.Position.X - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
+            Btn.Position = UDim2.new(pos, -7, 0.5, -7); Fill.Size = UDim2.new(pos, 0, 1, 0)
+            local val = math.floor(min + (max - min) * pos); ValueBox.Text = tostring(val); callback(val)
+        end
+    end)
+end
+
+-- ==========================================
+-- GẮN CHỨC NĂNG LÊN UI
+-- ==========================================
+CreateToggle(Tab1Page, "Kích hoạt Speed Player (Velocity Multiplier)", function(s) Config.SpeedPlayer = s end)
+CreateSlider(Tab1Page, "Hệ số tốc độ (WalkSpeed CFrame)", 16, 300, 50, function(v) Config.WalkSpeed = v end)
+CreateToggle(Tab1Page, "True Silent Aim (FOV Logic - 100% Hit)", function(s) Config.SilentAim = s end)
+CreateToggle(Tab1Page, "Bật vòng quét FOV & Tia Laser Đỏ", function(s) Config.FovVisible = s; FOVCircle.Visible = s end)
+CreateSlider(Tab1Page, "Độ rộng vùng quét FOV", 10, 1000, 120, function(v) Config.FovRadius = v end)
+CreateToggle(Tab1Page, "Kill Aura (Logic Tool - Không ảo hóa)", function(s) Config.KillAura = s end)
+CreateToggle(Tab1Page, "Fast Attack (Xóa độ trễ Remote)", function(s) Config.FastAttackRedz = s end)
+
+CreateToggle(Tab2Page, "BẬT CHUỖI MACRO COMBO MS", function(s)
+    if s then task.spawn(function() while s do RunMacroCombo(); task.wait(0.01) end end) else IsMacroRunning = false end
+end)
+
+for i = 1, 10 do
+    local StepFrame = Instance.new("Frame", Tab2Page); StepFrame.Size = UDim2.new(0.95, 0, 0, 45); StepFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28); Instance.new("UICorner", StepFrame).CornerRadius = UDim.new(0, 6)
+    local Lbl = Instance.new("TextLabel", StepFrame); Lbl.Size = UDim2.new(0.12, 0, 1, 0); Lbl.BackgroundTransparency = 1; Lbl.Text = "B_"..i; Lbl.Font = Enum.Font.GothamBold; Lbl.TextColor3 = Color3.fromRGB(0, 255, 128); Lbl.TextSize = 13
+    
+    local KeyBtn = Instance.new("TextButton", StepFrame); KeyBtn.Size = UDim2.new(0.2, 0, 0.7, 0); KeyBtn.Position = UDim2.new(0.14, 0, 0.15, 0); KeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); KeyBtn.Text = Config.MacroSequence[i].Key; KeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255); KeyBtn.Font = Enum.Font.GothamBold; KeyBtn.TextSize = 12; Instance.new("UICorner", KeyBtn).CornerRadius = UDim.new(0, 5)
+    local keys = {"Z", "X", "C", "V", "F"}
+    KeyBtn.MouseButton1Click:Connect(function() local idx = table.find(keys, Config.MacroSequence[i].Key) or 1; Config.MacroSequence[i].Key = keys[(idx % #keys) + 1]; KeyBtn.Text = Config.MacroSequence[i].Key end)
+
+    local WeapBtn = Instance.new("TextButton", StepFrame); WeapBtn.Size = UDim2.new(0.25, 0, 0.7, 0); WeapBtn.Position = UDim2.new(0.36, 0, 0.15, 0); WeapBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45); WeapBtn.Text = Config.MacroSequence[i].Weapon; WeapBtn.TextColor3 = Color3.fromRGB(255, 255, 255); WeapBtn.Font = Enum.Font.GothamBold; WeapBtn.TextSize = 12; Instance.new("UICorner", WeapBtn).CornerRadius = UDim.new(0, 5)
+    local weaps = {"Melee", "Sword", "Fruit", "Gun"}
+    WeapBtn.MouseButton1Click:Connect(function() local idx = table.find(weaps, Config.MacroSequence[i].Weapon) or 1; Config.MacroSequence[i].Weapon = weaps[(idx % #weaps) + 1]; WeapBtn.Text = Config.MacroSequence[i].Weapon end)
+
+    local DelayInput = Instance.new("TextBox", StepFrame); DelayInput.Size = UDim2.new(0, 95, 0, 30); DelayInput.Position = UDim2.new(0.65, 0, 0.15, 0); DelayInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45); DelayInput.Text = tostring(Config.MacroSequence[i].DelayMs) .. " ms"; DelayInput.TextColor3 = Color3.fromRGB(0, 255, 128); DelayInput.Font = Enum.Font.GothamBold; DelayInput.TextSize = 12; DelayInput.ClearTextOnFocus = false; Instance.new("UICorner", DelayInput).CornerRadius = UDim.new(0, 5)
+    DelayInput.FocusLost:Connect(function() local val = tonumber(string.match(DelayInput.Text, "%d+")); if val then Config.MacroSequence[i].DelayMs = val; DelayInput.Text = val .. " ms" else DelayInput.Text = Config.MacroSequence[i].DelayMs .. " ms" end end)
+      end
+      
