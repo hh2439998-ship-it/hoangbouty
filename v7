@@ -1,0 +1,910 @@
+-- [[ BLOX FRUITS PVP & MACRO HUB V5 - CẬP NHẬT FIX TOÀN BỘ LỖI + TIA ĐỎ + ESP CHUẨN ]] --
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Camera = workspace.CurrentCamera
+
+-- Cấu hình hệ thống mặc định
+local Config = {
+    WalkSpeed = 16,
+    JumpPower = 50,
+    AimbotEnabled = false,
+    SilentAim = false,
+    FovRadius = 120,
+    FovVisible = true,
+    TrackTarget = false,
+    FloatingMacro = false,
+    ESPEnabled = false,
+    KillAura = false,
+    KillAuraTarget = "Both",
+    FastAttackRedz = false,
+    MacroSequence = {}
+}
+
+-- Khởi tạo chuỗi Macro mặc định (10 bước)
+for i = 1, 10 do
+    Config.MacroSequence[i] = { Key = "Z", Weapon = "Melee", Delay = 0.5 }
+end
+
+-- Khởi tạo vòng FOV chuẩn xác không bị mất
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(0, 255, 128)
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Visible = Config.FovVisible
+
+-- KHỞI TẠO TIA ĐỎ (TRACER LINE) THEO YÊU CẦU 
+local TracerLine = Drawing.new("Line")
+TracerLine.Color = Color3.fromRGB(255, 30, 30) -- Màu đỏ PVP rực rỡ
+TracerLine.Thickness = 2
+TracerLine.Visible = false
+
+-- HÀM KÉO THẢ UI MƯỢT MÀ TỰ VIẾT (FIX LỖI DRAGGABLE CŨ)
+local function MakeUiDraggable(guiObject)
+    local dragging, dragInput, dragStart, startPos
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = guiObject.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+-- ==========================================
+-- VÒNG LẶP KHÓA SPEED & JUMP POWER VĨNH VIỄN
+-- ==========================================
+task.spawn(function()
+    while true do
+        task.wait(0.01)
+        pcall(function()
+            local char = LocalPlayer.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    if hum.WalkSpeed ~= Config.WalkSpeed then
+                        hum.WalkSpeed = Config.WalkSpeed
+                    end
+                    if hum.JumpPower ~= Config.JumpPower then
+                        hum.JumpPower = Config.JumpPower
+                        hum.UseJumpPower = true
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- ==========================================
+-- CƠ CHẾ FAST ATTACK BẰNG REMOTE (TỪ REDZ SCRIPT)
+-- ==========================================
+local v1 = next
+local v2 = {ReplicatedStorage:WaitForChild("Util"), ReplicatedStorage:WaitForChild("Common"), ReplicatedStorage:WaitForChild("Remotes"), ReplicatedStorage:WaitForChild("Assets"), ReplicatedStorage:WaitForChild("FX")}
+local v3, u4, u5 = nil, nil, nil
+
+task.spawn(function()
+    while true do
+        local v6
+        v3, v6 = v1(v2, v3)
+        if v3 == nil then break end
+        local v7 = next
+        local v8, v9 = v6:GetChildren()
+        while true do
+            local v10
+            v9, v10 = v7(v8, v9)
+            if v9 == nil then break end
+            if v10:IsA('RemoteEvent') and v10:GetAttribute('Id') then
+                u5 = v10:GetAttribute('Id')
+                u4 = v10
+            end
+        end
+        v6.ChildAdded:Connect(function(p11)
+            if p11:IsA('RemoteEvent') and p11:GetAttribute('Id') then
+                u5 = p11:GetAttribute('Id')
+                u4 = p11
+            end
+        end)
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0.01) do
+        if Config.FastAttackRedz then
+            local _Character = LocalPlayer.Character
+            if not _Character then continue end
+            local root = _Character:FindFirstChild('HumanoidRootPart')
+            if not root then continue end
+            
+            local u17 = {}
+            for _, mob in pairs(Workspace.Enemies:GetChildren()) do
+                local eRoot = mob:FindFirstChild('HumanoidRootPart')
+                local eHum = mob:FindFirstChild('Humanoid')
+                if eRoot and eHum and eHum.Health > 0 and (eRoot.Position - root.Position).Magnitude <= 65 then
+                    for _, part in ipairs(mob:GetChildren()) do
+                        if part:IsA('BasePart') then table.insert(u17, {mob, part}) end
+                    end
+                end
+            end
+
+            local _Tool = _Character:FindFirstChildOfClass('Tool')
+            if #u17 > 0 and (_Tool and (_Tool.ToolTip == 'Melee' or _Tool.ToolTip == 'Sword')) then
+                pcall(function()
+                    local NetModule = require(ReplicatedStorage.Modules.Net)
+                    NetModule:RemoteEvent('RegisterHit', true)
+                    
+                    if NetModule['RE/RegisterAttack'] then
+                        NetModule['RE/RegisterAttack']:FireServer()
+                    end
+                    
+                    local _Head = u17[1][1]:FindFirstChild('Head') or u17[1][1]:FindFirstChild('HumanoidRootPart')
+                    if _Head and u4 then
+                        local key = tostring(LocalPlayer.UserId):sub(2, 4) .. tostring(coroutine.running()):sub(11, 15)
+                        if NetModule['RE/RegisterHit'] then
+                            NetModule['RE/RegisterHit']:FireServer(_Head, u17, {}, key)
+                        end
+                        if cloneref then
+                            cloneref(u4):FireServer(string.gsub('RE/RegisterHit', '.', function(p31)
+                                return string.char(bit32.bxor(string.byte(p31), math.floor(workspace:GetServerTimeNow() / 10 % 10) + 1))
+                            end), bit32.bxor(u5 + 909090, NetModule.seed:InvokeServer() * 2), _Head, u17)
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- ESP HỆ THỐNG (VẼ KHUNG + THÔNG TIN CHI TIẾT)
+-- ==========================================
+local ESP_Objects = {}
+
+local function CreateESP(player)
+    local esp = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        HealthBar = Drawing.new("Line"),
+        HealthText = Drawing.new("Text"),
+        Distance = Drawing.new("Text")
+    }
+    
+    esp.Box.Color = Color3.fromRGB(255, 50, 50)
+    esp.Box.Thickness = 1.5
+    esp.Box.Filled = false
+    
+    esp.Name.Color = Color3.fromRGB(255, 255, 255)
+    esp.Name.Size = 14
+    esp.Name.Center = true
+    esp.Name.Outline = true
+    
+    esp.HealthBar.Color = Color3.fromRGB(0, 255, 0)
+    esp.HealthBar.Thickness = 2.5
+    
+    esp.HealthText.Color = Color3.fromRGB(0, 255, 100)
+    esp.HealthText.Size = 12
+    esp.HealthText.Center = true
+    esp.HealthText.Outline = true
+
+    esp.Distance.Color = Color3.fromRGB(255, 215, 0)
+    esp.Distance.Size = 12
+    esp.Distance.Center = true
+    esp.Distance.Outline = true
+
+    ESP_Objects[player] = esp
+end
+
+local function RemoveESP(player)
+    if ESP_Objects[player] then
+        for _, drawing in pairs(ESP_Objects[player]) do
+            pcall(function() drawing:Remove() end)
+        end
+        ESP_Objects[player] = nil
+    end
+end
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then CreateESP(player) end
+end
+Players.PlayerAdded:Connect(function(player) CreateESP(player) end)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- ==========================================
+-- HÀM TIỆN ÍCH PVP CHUẨN
+-- ==========================================
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
+            if onScreen then
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerScreen).Magnitude
+                if distance <= Config.FovRadius and distance < shortestDistance then
+                    closestPlayer = player
+                    shortestDistance = distance
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local function EquipWeapon(weaponType)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    if not character or not backpack then return end
+    
+    -- SỬA LỖI: Kiểm tra xem đã cầm sẵn vũ khí phù hợp trên tay chưa để tránh bị spam đổi vũ khí liên tục
+    local currentTool = character:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local cName = currentTool.Name:lower()
+        local isMatch = false
+        if weaponType == "Melee" and (cName:find("style") or cName:find("combat") or cName:find("claw") or cName:find("god") or cName:find("karate") or cName:find("step") or cName:find("fist") or cName:find("sanguine")) then isMatch = true end
+        if weaponType == "Sword" and (cName:find("sword") or cName:find("blade") or cName:find("katana") or cName:find("scythe") or cName:find("dagger") or cName:find("saber") or cName:find("ttf") or cName:find("pole") or cName:find("hallow")) then isMatch = true end
+        if weaponType == "Fruit" and (cName:find("fruit") or cName:find("dough") or cName:find("leopard") or cName:find("kitsune") or cName:find("dragon") or cName:find("spirit") or cName:find("venom") or cName:find("t-rex")) then isMatch = true end
+        if weaponType == "Gun" and (cName:find("gun") or cName:find("rifle") or cName:find("flintlock") or cName:find("cannon") or cName:find("musket") or cName:find("kabucha")) then isMatch = true end
+        if currentTool.Name:lower() == weaponType:lower() then isMatch = true end
+        
+        if isMatch then return end -- Nếu đúng hệ vũ khí rồi thì giữ nguyên không đổi nữa
+    end
+    
+    local targetTool = nil
+    for _, tool in pairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            local name = tool.Name:lower()
+            if weaponType == "Melee" and (name:find("style") or name:find("combat") or name:find("claw") or name:find("god") or name:find("karate") or name:find("step") or name:find("fist") or name:find("sanguine")) then
+                targetTool = tool; break
+            elseif weaponType == "Sword" and (name:find("sword") or name:find("blade") or name:find("katana") or name:find("scythe") or name:find("dagger") or name:find("saber") or name:find("ttf") or name:find("pole") or name:find("hallow")) then
+                targetTool = tool; break
+            elseif weaponType == "Fruit" and (name:find("fruit") or name:find("dough") or name:find("leopard") or name:find("kitsune") or name:find("dragon") or name:find("spirit") or name:find("venom") or name:find("t-rex")) then
+                targetTool = tool; break
+            elseif weaponType == "Gun" and (name:find("gun") or name:find("rifle") or name:find("flintlock") or name:find("cannon") or name:find("musket") or name:find("kabucha")) then
+                targetTool = tool; break
+            elseif name == weaponType:lower() then
+                targetTool = tool; break
+            end
+        end
+    end
+    
+    if targetTool then
+        for _, item in pairs(character:GetChildren()) do
+            if item:IsA("Tool") then item.Parent = backpack end
+        end
+        targetTool.Parent = character
+    end
+end
+
+local function ActivateSkill(key)
+    pcall(function()
+        local keyCode = Enum.KeyCode[key]
+        if keypress then
+            keypress(keyCode.Value)
+            task.wait(0.05)
+            keyrelease(keyCode.Value)
+        else
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        end
+    end)
+end
+
+-- ==========================================
+-- TRUE SILENT AIM (TỰ KHÓA HƯỚNG CHIÊU) - FIXED CRASH/LAG
+-- ==========================================
+local PlayerMouse = LocalPlayer:GetMouse()
+local oldIndex
+oldIndex = hookmetamethod(game, "__index", function(self, key)
+    -- SỬA LỖI: Chỉ can thiệp khi đối tượng gọi chính là chuột (PlayerMouse) để tránh crash game
+    if Config.SilentAim and self == PlayerMouse and (key == "Hit" or key == "Target") then
+        if not checkcaller() then
+            local target = GetClosestPlayer()
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                if key == "Hit" then
+                    return target.Character.HumanoidRootPart.CFrame
+                elseif key == "Target" then
+                    return target.Character.HumanoidRootPart
+                end
+            end
+        end
+    end
+    return oldIndex(self, key)
+end)
+
+-- ==========================================
+-- CƠ CHẾ AUTO CLICK MẶC ĐỊNH - CHUẨN MƯỢT
+-- ==========================================
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if Config.KillAura then
+            pcall(function()
+                local hasTarget = false
+                local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if myHRP then
+                    if Config.KillAuraTarget == "NPCs" or Config.KillAuraTarget == "Both" then
+                        local enemies = workspace:FindFirstChild("Enemies") or workspace
+                        for _, enemy in pairs(enemies:GetChildren()) do
+                            if enemy:FindFirstChild("Humanoid") and enemy:FindFirstChild("HumanoidRootPart") and enemy.Humanoid.Health > 0 then
+                                if (enemy.HumanoidRootPart.Position - myHRP.Position).Magnitude <= 45 then
+                                    hasTarget = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if not hasTarget and (Config.KillAuraTarget == "Players" or Config.KillAuraTarget == "Both") then
+                        for _, player in pairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.Humanoid.Health > 0 then
+                                if (player.Character.HumanoidRootPart.Position - myHRP.Position).Magnitude <= 45 then
+                                    hasTarget = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if hasTarget then
+                    -- FIX LỖI: Sử dụng MouseClick trọn vẹn thay vì giữ đè phím Button1 ảo gây đứng hình
+                    VirtualInputManager:SendMouseButtonEvent(1280, 672, 0, true, game, 1)
+                    task.wait(0.01)
+                    VirtualInputManager:SendMouseButtonEvent(1280, 672, 0, false, game, 1)
+                end
+            end)
+        end
+    end
+end)
+
+-- ==========================================
+-- VÒNG LẶP RENDER CHÍNH (AIMBOT + ESP + TIA LASER ĐỎ)
+-- ==========================================
+RunService.RenderStepped:Connect(function()
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    FOVCircle.Position = centerScreen
+    FOVCircle.Radius = Config.FovRadius
+    FOVCircle.Visible = Config.FovVisible
+    
+    local target = GetClosestPlayer()
+    
+    -- XỬ LÝ HỆ THỐNG TIA ĐỎ KHÓA MỤC TIÊU (TRACER LINE)
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and (Config.AimbotEnabled or Config.SilentAim) then
+        local targetHRP = target.Character.HumanoidRootPart
+        local screenPos, onScreen = Camera:WorldToViewportPoint(targetHRP.Position)
+        if onScreen then
+            TracerLine.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Tia bắn từ góc dưới giữa màn hình lên kẻ địch
+            TracerLine.To = Vector2.new(screenPos.X, screenPos.Y)
+            TracerLine.Visible = true
+        else
+            TracerLine.Visible = false
+        end
+        
+        -- Thao tác xoay Camera cho Aimbot mượt
+        if Config.AimbotEnabled then
+            local currentCF = Camera.CFrame
+            local targetCF = CFrame.lookAt(currentCF.Position, targetHRP.Position)
+            Camera.CFrame = currentCF:Lerp(targetCF, 0.22)
+        end
+        
+        -- Áp sát mục tiêu khi giữ skill combo
+        if Config.TrackTarget and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local isHoldingSkill = UserInputService:IsKeyDown(Enum.KeyCode.Z) or UserInputService:IsKeyDown(Enum.KeyCode.X) or UserInputService:IsKeyDown(Enum.KeyCode.C) or UserInputService:IsKeyDown(Enum.KeyCode.V) or UserInputService:IsKeyDown(Enum.KeyCode.F)
+            if isHoldingSkill then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 3)
+            end
+        end
+    else
+        TracerLine.Visible = false
+    end
+
+    -- ĐIỀU KHIỂN THỊ GIÁC KHUNG ESP ĐỊCH
+    for player, esp in pairs(ESP_Objects) do
+        if Config.ESPEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local hum = player.Character.Humanoid
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
+            if onScreen then
+                local myPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position or Vector3.new(0,0,0)
+                local dist = math.floor((hrp.Position - myPos).Magnitude)
+                local head = player.Character:FindFirstChild("Head")
+                
+                local headPos = Camera:WorldToViewportPoint(head and head.Position + Vector3.new(0, 0.5, 0) or hrp.Position + Vector3.new(0, 2, 0))
+                local legPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                local boxHeight = math.abs(headPos.Y - legPos.Y)
+                local boxWidth = boxHeight * 0.6
+
+                esp.Box.Size = Vector2.new(boxWidth, boxHeight)
+                esp.Box.Position = Vector2.new(pos.X - boxWidth / 2, headPos.Y)
+                esp.Box.Visible = true
+
+  esp.Name.Text = player.DisplayName
+                esp.Name.Position = Vector2.new(pos.X, headPos.Y - 20)
+                esp.Name.Visible = true
+
+                esp.Distance.Text = dist .. "m"
+                esp.Distance.Position = Vector2.new(pos.X, legPos.Y + 5)
+                esp.Distance.Visible = true
+
+                local healthPercent = hum.Health / hum.MaxHealth
+                esp.HealthBar.From = Vector2.new(pos.X - boxWidth / 2 - 5, legPos.Y)
+                esp.HealthBar.To = Vector2.new(pos.X - boxWidth / 2 - 5, legPos.Y - (boxHeight * healthPercent))
+                esp.HealthBar.Color = Color3.fromRGB(255 - (255 * healthPercent), 255 * healthPercent, 0)
+                esp.HealthBar.Visible = true
+
+                esp.HealthText.Text = math.floor(hum.Health) .. " HP"
+                esp.HealthText.Position = Vector2.new(pos.X - boxWidth / 2 - 25, legPos.Y - (boxHeight * healthPercent) - 10)
+                esp.HealthText.Visible = true
+            else
+                for _, v in pairs(esp) do v.Visible = false end
+            end
+        else
+            for _, v in pairs(esp) do v.Visible = false end
+        end
+    end
+end)
+
+local IsMacroRunning = false
+local function RunMacroCombo()
+    if IsMacroRunning then return end
+    IsMacroRunning = true
+    for i = 1, #Config.MacroSequence do
+        if not IsMacroRunning then break end
+        local step = Config.MacroSequence[i]
+        EquipWeapon(step.Weapon)
+        task.wait(0.12)
+        ActivateSkill(step.Key)
+        task.wait(step.Delay)
+    end
+    IsMacroRunning = false
+end
+
+-- ==========================================
+-- THIẾT KẾ GIAO DIỆN HẰNG SỐ (UI DESIGN)
+-- ==========================================
+local MainGui = Instance.new("ScreenGui")
+MainGui.Name = "BloxHubV5"
+MainGui.ResetOnSpawn = false
+if syn and syn.protect_gui then syn.protect_gui(MainGui) end
+MainGui.Parent = game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
+
+local MenuToggleButton = Instance.new("TextButton")
+MenuToggleButton.Size = UDim2.new(0, 45, 0, 45)
+MenuToggleButton.Position = UDim2.new(0.01, 0, 0.01, 0)
+MenuToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MenuToggleButton.Text = "⚡"
+MenuToggleButton.TextColor3 = Color3.fromRGB(0, 255, 128)
+MenuToggleButton.TextSize = 22
+Instance.new("UICorner", MenuToggleButton).CornerRadius = UDim.new(0, 8)
+MenuToggleButton.Parent = MainGui
+
+local FloatingMacroBtn = Instance.new("TextButton")
+FloatingMacroBtn.Size = UDim2.new(0, 65, 0, 65)
+FloatingMacroBtn.Position = UDim2.new(0.85, 0, 0.5, 0)
+FloatingMacroBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+FloatingMacroBtn.Text = "COMBO"
+FloatingMacroBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+FloatingMacroBtn.Font = Enum.Font.GothamBold
+FloatingMacroBtn.TextSize = 13
+FloatingMacroBtn.Active = true
+FloatingMacroBtn.Visible = false
+Instance.new("UICorner", FloatingMacroBtn).CornerRadius = UDim.new(1, 0) 
+FloatingMacroBtn.Parent = MainGui
+MakeUiDraggable(FloatingMacroBtn) -- Áp dụng hàm kéo thả mượt mà mới cho nút combo nổi
+
+FloatingMacroBtn.MouseButton1Click:Connect(function()
+    if not IsMacroRunning then
+        FloatingMacroBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+        task.spawn(function()
+            RunMacroCombo()
+            FloatingMacroBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+        end)
+    else
+        IsMacroRunning = false
+        FloatingMacroBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    end
+end)
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 560, 0, 430)
+MainFrame.Position = UDim2.new(0.3, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.Active = true
+MainFrame.Parent = MainGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+MakeUiDraggable(MainFrame) -- Áp dụng kéo thả mượt mà cho Menu Frame chính
+
+MenuToggleButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Text = "   BLOX PVP & MACRO HUB V5 [FIXED]"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
+
+local TabContainer = Instance.new("Frame")
+TabContainer.Size = UDim2.new(1, 0, 0, 35)
+TabContainer.Position = UDim2.new(0, 0, 0, 40)
+TabContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+TabContainer.Parent = MainFrame
+
+local Tab1Btn = Instance.new("TextButton")
+Tab1Btn.Size = UDim2.new(0.5, 0, 1, 0)
+Tab1Btn.Text = "Thông số & ESP"
+Tab1Btn.Font = Enum.Font.GothamBold
+Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Tab1Btn.Parent = TabContainer
+
+local Tab2Btn = Instance.new("TextButton")
+Tab2Btn.Size = UDim2.new(0.5, 0, 1, 0)
+Tab2Btn.Position = UDim2.new(0.5, 0, 0, 0)
+Tab2Btn.Text = "Cơ chế PvP & Macro"
+Tab2Btn.Font = Enum.Font.GothamBold
+Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Tab2Btn.Parent = TabContainer
+
+local Tab1Page = Instance.new("ScrollingFrame")
+Tab1Page.Size = UDim2.new(1, 0, 1, -75)
+Tab1Page.Position = UDim2.new(0, 0, 0, 75)
+Tab1Page.BackgroundTransparency = 1
+Tab1Page.ScrollBarThickness = 4
+Tab1Page.Parent = MainFrame
+
+local Tab2Page = Instance.new("ScrollingFrame")
+Tab2Page.Size = UDim2.new(1, 0, 1, -75)
+Tab2Page.Position = UDim2.new(0, 0, 0, 75)
+Tab2Page.BackgroundTransparency = 1
+Tab2Page.ScrollBarThickness = 4
+Tab2Page.Visible = false
+Tab2Page.Parent = MainFrame
+
+local Layout1 = Instance.new("UIListLayout", Tab1Page)
+Layout1.Padding = UDim.new(0, 6)
+Layout1.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout1:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    Tab1Page.CanvasSize = UDim2.new(0, 0, 0, Layout1.AbsoluteContentSize.Y + 20)
+end)
+
+local Layout2 = Instance.new("UIListLayout", Tab2Page)
+Layout2.Padding = UDim.new(0, 6)
+Layout2.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout2:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    Tab2Page.CanvasSize = UDim2.new(0, 0, 0, Layout2.AbsoluteContentSize.Y + 20)
+end)
+
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = true; Tab2Page.Visible = false
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Page.Visible = false; Tab2Page.Visible = true
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30); Tab1Btn.TextColor3 = Color3.fromRGB(160, 160, 160)
+end)
+
+-- ==========================================
+-- CÁC HÀM DỰNG THÀNH PHẦN GIAO DIỆN (UI CREATORS)
+-- ==========================================
+local function CreateToggle(parent, text, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.95, 0, 0, 40)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.7, 0, 1, 0)
+    Label.Text = "   " .. text
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(0, 32, 0, 32)
+    Btn.Position = UDim2.new(0.95, -32, 0.5, -16)
+    Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Btn.Text = ""
+    Btn.TextColor3 = Color3.fromRGB(0, 255, 128)
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 18
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    Btn.Parent = Frame
+    
+    local on = false
+    Btn.MouseButton1Click:Connect(function()
+        on = not on
+        Btn.Text = on and "✓" or ""
+        Btn.BackgroundColor3 = on and Color3.fromRGB(35, 60, 45) or Color3.fromRGB(45, 45, 45)
+        callback(on)
+    end)
+end
+
+local function CreateTextBoxInput(parent, text, defaultVal, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.95, 0, 0, 42)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.65, 0, 1, 0)
+    Label.Text = "   " .. text
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local TextBox = Instance.new("TextBox")
+    TextBox.Size = UDim2.new(0, 80, 0, 30)
+    TextBox.Position = UDim2.new(0.95, -80, 0.5, -15)
+    TextBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    TextBox.Text = tostring(defaultVal)
+    TextBox.TextColor3 = Color3.fromRGB(0, 255, 128)
+    TextBox.Font = Enum.Font.GothamBold
+    TextBox.TextSize = 14
+    TextBox.ClearTextOnFocus = false
+    Instance.new("UICorner", TextBox).CornerRadius = UDim.new(0, 6)
+    TextBox.Parent = Frame
+
+    TextBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local val = tonumber(TextBox.Text)
+        if val then callback(val) end
+    end)
+    
+    TextBox.FocusLost:Connect(function()
+        local val = tonumber(TextBox.Text)
+        if not val then TextBox.Text = tostring(defaultVal) end
+    end)
+end
+
+local function CreateSlider(parent, text, min, max, default, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.95, 0, 0, 50)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, 0, 0, 20)
+    Label.Text = "   " .. text
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 13
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local ValueBox = Instance.new("TextLabel")
+    ValueBox.Size = UDim2.new(0, 45, 0, 18)
+    ValueBox.Position = UDim2.new(0.95, -45, 0, 0)
+    ValueBox.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
+    ValueBox.TextColor3 = Color3.fromRGB(20, 20, 20)
+    ValueBox.Font = Enum.Font.GothamBold
+    ValueBox.TextSize = 12
+    ValueBox.Text = tostring(default)
+    Instance.new("UICorner", ValueBox).CornerRadius = UDim.new(0, 4)
+    ValueBox.Parent = Frame
+
+    local SliderBG = Instance.new("Frame")
+    SliderBG.Size = UDim2.new(0.95, 0, 0, 6)
+    SliderBG.Position = UDim2.new(0.025, 0, 0, 35)
+    SliderBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Instance.new("UICorner", SliderBG).CornerRadius = UDim.new(1, 0)
+    SliderBG.Parent = Frame
+
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0)
+    Fill.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
+    Instance.new("UICorner", Fill).CornerRadius = UDim.new(1, 0)
+    Fill.Parent = SliderBG
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(0, 14, 0, 14)
+    Btn.Position = UDim2.new((default - min)/(max - min), -7, 0.5, -7)
+    Btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Text = ""
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(1, 0)
+    Btn.Parent = SliderBG
+
+    local dragging = false
+    Btn.MouseButton1Down:Connect(function() dragging = true end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local pos = math.clamp((input.Position.X - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
+            Btn.Position = UDim2.new(pos, -7, 0.5, -7)
+            Fill.Size = UDim2.new(pos, 0, 1, 0)
+            local val = math.floor(min + (max - min) * pos)
+            ValueBox.Text = tostring(val)
+            callback(val)
+        end
+    end)
+end
+
+local function CreateDropdown(parent, text, list, callback)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.95, 0, 0, 40)
+    Frame.BackgroundTransparency = 1
+    Frame.Parent = parent
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.5, 0, 1, 0)
+    Label.Text = "   " .. text
+    Label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 14
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.BackgroundTransparency = 1
+    Label.Parent = Frame
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(0, 110, 0, 30)
+    Btn.Position = UDim2.new(0.95, -110, 0.5, -15)
+    Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Btn.Text = list[1]
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 13
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    Btn.Parent = Frame
+
+    Btn.MouseButton1Click:Connect(function()
+        local currentIdx = table.find(list, Btn.Text) or 1
+        local nextIdx = (currentIdx % #list) + 1
+        Btn.Text = list[nextIdx]
+        callback(list[nextIdx])
+    end)
+end
+
+-- ==========================================
+-- PHÂN PHỐI THÀNH PHẦN ĐIỀU KHIỂN VÀO TABS
+-- ==========================================
+
+-- TAB 1: THÔNG SỐ NHÂN VẬT & THỊ GIÁC ESP
+CreateTextBoxInput(Tab1Page, "Nhập Tốc độ chạy (WalkSpeed)", 16, function(v) Config.WalkSpeed = v end)
+CreateTextBoxInput(Tab1Page, "Nhập Sức bật nhảy (JumpPower)", 50, function(v) Config.JumpPower = v end)
+CreateToggle(Tab1Page, "Bật Hệ thống định vị ESP Địch", function(s) Config.ESPEnabled = s end)
+
+-- TAB 2: CƠ CHẾ PVP CHIẾN ĐẤU & AIM & MACRO
+CreateToggle(Tab2Page, "Camera Aimbot (Khóa mượt, không giật lố)", function(s) Config.AimbotEnabled = s end)
+CreateToggle(Tab2Page, "True Silent Aim (Chiêu tự găm trúng địch 100%)", function(s) Config.SilentAim = s end)
+CreateToggle(Tab2Page, "Bật Vòng quét FOV mục tiêu", function(s) Config.FovVisible = s end)
+CreateSlider(Tab2Page, "Độ rộng vùng quét FOV", 10, 1000, 120, function(v) Config.FovRadius = v end)
+CreateToggle(Tab2Page, "Áp sát mục tiêu khi đang giữ phím chiêu", function(s) Config.TrackTarget = s end)
+
+-- Tính năng Kill Aura và Redz Fast Attack
+CreateToggle(Tab2Page, "Kích hoạt Kill Aura (Auto Click Thường)", function(s) Config.KillAura = s end)
+CreateToggle(Tab2Page, "Kích hoạt Fast Attack (Siêu Tốc Độ - Redz)", function(s) Config.FastAttackRedz = s end)
+CreateDropdown(Tab2Page, "Mục tiêu quét Aura", {"Both", "Players", "NPCs"}, function(v) Config.KillAuraTarget = v end)
+
+CreateToggle(Tab2Page, "Hiển thị nút bấm MACRO nổi", function(s) 
+    Config.FloatingMacro = s
+    FloatingMacroBtn.Visible = s
+end)
+
+local Divider = Instance.new("TextLabel")
+Divider.Size = UDim2.new(0.95, 0, 0, 25)
+Divider.Text = "CẤU HÌNH THỨ TỰ SKILL COMBO MACRO"
+Divider.TextColor3 = Color3.fromRGB(0, 255, 128)
+Divider.Font = Enum.Font.GothamBold
+Divider.TextSize = 13
+Divider.BackgroundTransparency = 1
+Divider.Parent = Tab2Page
+
+for i = 1, 10 do
+    local StepFrame = Instance.new("Frame")
+    StepFrame.Size = UDim2.new(0.95, 0, 0, 45)
+    StepFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+    Instance.new("UICorner", StepFrame).CornerRadius = UDim.new(0, 6)
+    StepFrame.Parent = Tab2Page
+
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Size = UDim2.new(0.12, 0, 1, 0)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text = "B_" .. i
+    Lbl.Font = Enum.Font.GothamBold
+    Lbl.TextColor3 = Color3.fromRGB(0, 255, 128)
+    Lbl.TextSize = 13
+    Lbl.Parent = StepFrame
+
+    local KeyBtn = Instance.new("TextButton")
+    KeyBtn.Size = UDim2.new(0.25, 0, 0.7, 0)
+    KeyBtn.Position = UDim2.new(0.14, 0, 0.15, 0)
+    KeyBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    KeyBtn.Text = "Phím: " .. Config.MacroSequence[i].Key
+    KeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    KeyBtn.Font = Enum.Font.GothamBold
+    KeyBtn.TextSize = 12
+    Instance.new("UICorner", KeyBtn).CornerRadius = UDim.new(0, 5)
+    KeyBtn.Parent = StepFrame
+    
+    local keys = {"Z", "X", "C", "V", "F"}
+    KeyBtn.MouseButton1Click:Connect(function()
+        local idx = table.find(keys, Config.MacroSequence[i].Key) or 1
+        Config.MacroSequence[i].Key = keys[(idx % #keys) + 1]
+        KeyBtn.Text = "Phím: " .. Config.MacroSequence[i].Key
+    end)
+
+    local WeapBtn = Instance.new("TextButton")
+    WeapBtn.Size = UDim2.new(0.3, 0, 0.7, 0)
+    WeapBtn.Position = UDim2.new(0.41, 0, 0.15, 0)
+    WeapBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    WeapBtn.Text = Config.MacroSequence[i].Weapon
+    WeapBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    WeapBtn.Font = Enum.Font.GothamBold
+    WeapBtn.TextSize = 12
+    Instance.new("UICorner", WeapBtn).CornerRadius = UDim.new(0, 5)
+    WeapBtn.Parent = StepFrame
+    
+    local weaps = {"Melee", "Sword", "Fruit", "Gun"}
+    WeapBtn.MouseButton1Click:Connect(function()
+        local idx = table.find(weaps, Config.MacroSequence[i].Weapon) or 1
+        Config.MacroSequence[i].Weapon = weaps[(idx % #weaps) + 1]
+        WeapBtn.Text = Config.MacroSequence[i].Weapon
+    end)
+
+    local DelayInput = Instance.new("TextBox")
+    DelayInput.Size = UDim2.new(0, 65, 0, 30)
+    DelayInput.Position = UDim2.new(0.85, -15, 0.15, 0)
+    DelayInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    DelayInput.Text = tostring(Config.MacroSequence[i].Delay)
+    DelayInput.TextColor3 = Color3.fromRGB(0, 255, 128)
+    DelayInput.Font = Enum.Font.GothamBold
+    DelayInput.TextSize = 13
+    DelayInput.ClearTextOnFocus = false
+    Instance.new("UICorner", DelayInput).CornerRadius = UDim.new(0, 5)
+    DelayInput.Parent = StepFrame
+
+    DelayInput:GetPropertyChangedSignal("Text"):Connect(function()
+        local val = tonumber(DelayInput.Text)
+        if val then Config.MacroSequence[i].Delay = val end
+    end)
+
+    DelayInput.FocusLost:Connect(function()
+        local val = tonumber(DelayInput.Text)
+        if not val then DelayInput.Text = tostring(Config.MacroSequence[i].Delay) end
+    end)
+end
