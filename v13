@@ -408,7 +408,7 @@ end)
 local IsMacroRunning = false
 local function RunMacroCombo()
     if IsMacroRunning then return end
-    IsMacroRunning = true
+    IsMacroRunning = false
     for i = 1, #Config.MacroSequence do
         if not IsMacroRunning then break end
         local step = Config.MacroSequence[i]
